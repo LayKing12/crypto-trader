@@ -80,11 +80,11 @@ const DEMO_HOLDINGS = [
 const ACCENT_COLORS = [THEME.purple, THEME.blue, THEME.cyan, THEME.green];
 
 export default function Portfolio({ prices }) {
-  const [balance, setBalance]         = useState(null);
-  const [cagnotte, setCagnotte]       = useState(getCagnotte());
-  const [tradeLog, setTradeLog]       = useState([]);
+  const [balance, setBalance]             = useState(null);
+  const [cagnotte, setCagnotte]           = useState(getCagnotte());
+  const [tradeLog, setTradeLog]           = useState([]);
   const [tradesLoading, setTradesLoading] = useState(false);
-  const [view, setView]               = useState("positions");
+  const [view, setView]                   = useState("positions");
 
   useEffect(() => {
     api.getBalance().then(setBalance).catch(() => {});
@@ -95,8 +95,13 @@ export default function Portfolio({ prices }) {
     if (view !== "trades") return;
     setTradesLoading(true);
     api.getTrades()
-      .then(setTradeLog)
-      .catch(() => setTradeLog([]))
+      .then((data) => {
+        setTradeLog(Array.isArray(data) ? data : []);
+      })
+      .catch((e) => {
+        console.error("[Portfolio] getTrades error:", e);
+        setTradeLog([]);
+      })
       .finally(() => setTradesLoading(false));
   }, [view]);
 
@@ -295,7 +300,6 @@ export default function Portfolio({ prices }) {
               </div>
             ) : tradeLog.map((t) => {
               const resultColor = t.result === "win" ? THEME.green : t.result === "loss" ? THEME.red : THEME.yellow;
-              const sideColor   = t.side === "buy" ? THEME.green : THEME.red;
               return (
                 <div key={t.id} style={{
                   background: THEME.glass, border: `1px solid ${THEME.border}`,
@@ -303,33 +307,34 @@ export default function Portfolio({ prices }) {
                   borderRadius: "14px", padding: "14px", marginBottom: "10px",
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                    <span style={{ fontSize: "13px", color: sideColor, fontWeight: "700" }}>
-                      {t.side === "buy" ? "▲" : "▼"} {t.pair} {t.side.toUpperCase()}
+                    <span style={{ fontSize: "13px", color: THEME.text, fontWeight: "700" }}>
+                      {t.symbol}
                     </span>
                     <span style={{ fontSize: "10px", color: THEME.muted }}>
-                      {t.created_at ? new Date(t.created_at).toLocaleDateString("fr") : "—"}
+                      {t.opened_at ? new Date(t.opened_at).toLocaleDateString("fr") : "—"}
                     </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontSize: "12px", color: THEME.text2 }}>
-                      {t.volume?.toFixed(6)} @ €{t.price?.toLocaleString("fr", { maximumFractionDigits: 2 })}
-                      <span style={{ color: THEME.muted }}> ≈ €{t.euros?.toFixed(2)}</span>
+                      Entrée €{t.entry_price?.toLocaleString("fr", { maximumFractionDigits: 2 })}
+                      {t.exit_price && (
+                        <span style={{ color: THEME.muted }}> → €{t.exit_price.toLocaleString("fr", { maximumFractionDigits: 2 })}</span>
+                      )}
                     </div>
-                    {t.result && t.result !== "open" && (
-                      <span style={{
-                        fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                        background: resultColor + "18", color: resultColor,
-                        border: `1px solid ${resultColor}35`, fontWeight: "700",
-                      }}>
-                        {t.pnl_pct != null ? `${t.pnl_pct > 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : t.result.toUpperCase()}
-                      </span>
-                    )}
-                    {t.result === "open" && (
+                    {t.result === "open" ? (
                       <span style={{
                         fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
                         background: THEME.yellow + "18", color: THEME.yellow,
                         border: `1px solid ${THEME.yellow}35`, fontWeight: "700",
                       }}>EN COURS</span>
+                    ) : (
+                      <span style={{
+                        fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
+                        background: resultColor + "18", color: resultColor,
+                        border: `1px solid ${resultColor}35`, fontWeight: "700",
+                      }}>
+                        {t.pnl_pct != null ? `${t.pnl_pct > 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : (t.result || "—").toUpperCase()}
+                      </span>
                     )}
                   </div>
                 </div>

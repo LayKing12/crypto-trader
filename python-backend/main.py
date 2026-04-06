@@ -496,38 +496,34 @@ async def list_trades(
     limit: int = Query(50, le=200),
     result: str | None = Query(None),
 ):
-    q = select(Trade).order_by(desc(Trade.opened_at)).limit(limit)
-    if result:
-        q = q.where(Trade.result == result)
-    rows = await db.execute(q)
-    trades = rows.scalars().all()
-    return [
-        {
-            "id": str(t.id),
-            # Aliases utilisés par le frontend
-            "pair": t.symbol,
-            "side": "sell" if t.result in ("win", "loss") and t.exit_price else "buy",
-            "price": t.entry_price,
-            "volume": round(t.position_size_usd / t.entry_price, 8) if t.entry_price else 0,
-            "euros": t.position_size_usd,
-            "created_at": t.opened_at.isoformat() if t.opened_at else None,
-            # Champs complets
-            "symbol": t.symbol,
-            "entry_price": t.entry_price,
-            "exit_price": t.exit_price,
-            "stop_loss_price": t.stop_loss_price,
-            "pnl_pct": t.pnl_pct,
-            "pnl_usd": t.pnl_usd,
-            "result": t.result,
-            "regime_at_entry": t.regime_at_entry,
-            "confidence_at_entry": t.confidence_at_entry,
-            "position_size_pct": t.position_size_pct,
-            "is_paper": t.is_paper,
-            "opened_at": t.opened_at.isoformat() if t.opened_at else None,
-            "closed_at": t.closed_at.isoformat() if t.closed_at else None,
-        }
-        for t in trades
-    ]
+    try:
+        q = select(Trade).order_by(desc(Trade.opened_at)).limit(limit)
+        if result:
+            q = q.where(Trade.result == result)
+        rows = await db.execute(q)
+        trades = rows.scalars().all()
+        return [
+            {
+                "id": str(t.id),
+                "symbol": t.symbol,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "stop_loss_price": t.stop_loss_price,
+                "pnl_pct": t.pnl_pct,
+                "pnl_usd": t.pnl_usd,
+                "result": t.result,
+                "regime_at_entry": t.regime_at_entry,
+                "confidence_at_entry": t.confidence_at_entry,
+                "position_size_pct": t.position_size_pct,
+                "is_paper": t.is_paper,
+                "opened_at": t.opened_at.isoformat() if t.opened_at else None,
+                "closed_at": t.closed_at.isoformat() if t.closed_at else None,
+            }
+            for t in trades
+        ]
+    except Exception as e:
+        log.error("list_trades_error", error=str(e))
+        return []
 
 
 @app.get("/api/price/{symbol}")
