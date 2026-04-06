@@ -1,25 +1,20 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import NullPool
-from app.config import get_settings
+from sqlalchemy.pool import AsyncAdaptedQueuePool
+import os
 
-settings = get_settings()
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-if not settings.database_url:
-    raise RuntimeError("DATABASE_URL est vide.")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL manquant dans les variables Railway")
 
 engine = create_async_engine(
-    "postgresql+asyncpg://",
-    connect_args={
-        "host": "aws-1-eu-north-1.pooler.supabase.com",
-        "port": 6543,
-        "user": "postgres.lgdpbuyottatmfzfupjt",
-        "password": "5xtfLzl0VgbqFwdD",
-        "database": "postgres",
-        "statement_cache_size": 0,
-    },
-    echo=settings.app_env == "development",
-    poolclass=NullPool,
+    DATABASE_URL,
+    poolclass=AsyncAdaptedQueuePool,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
 )
 
 print("[DB] Connexion vers Supabase aws-1-eu-north-1...")
@@ -30,10 +25,8 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-
 class Base(DeclarativeBase):
     pass
-
 
 async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:
@@ -43,7 +36,6 @@ async def get_db() -> AsyncSession:
         except Exception:
             await session.rollback()
             raise
-
 
 async def init_db():
     async with engine.begin() as conn:

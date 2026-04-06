@@ -87,7 +87,7 @@ export default function Portfolio({ prices }) {
   const [view, setView]         = useState("positions");
 
   useEffect(() => {
-    api.getBalance().then(setBalance).catch((e) => setError(e.message));
+    api.getBalance().then(setBalance).catch(() => {});
     setTradeLog(getTradeLog());
     setCagnotte(getCagnotte());
   }, []);

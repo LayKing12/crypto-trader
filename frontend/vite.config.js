@@ -8,8 +8,9 @@ export default defineConfig({
     proxy: {
       // Forward all /api calls to the backend during dev
       "/api": {
-        target: "http://localhost:3001",
+        target: "https://crypto-trader-production-8ef4.up.railway.app",
         changeOrigin: true,
+        secure: true,
       },
       // WebSocket proxy
       "/ws": {

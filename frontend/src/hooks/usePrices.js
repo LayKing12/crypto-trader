@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useWebSocket } from "./useWebSocket";
+import { api } from "../api";
 
 // Derived indicator helpers
 export function calcRSI(change) {
@@ -32,6 +33,16 @@ function makeHistory(price, n = 50) {
   data[data.length - 1].price = price;
   return data;
 }
+
+// Maps Kraken pair → CoinGecko coin id
+const CG_PAIR_MAP = {
+  "XBT/USD": "bitcoin",      "ETH/USD": "ethereum",     "SOL/USD": "solana",
+  "ADA/USD": "cardano",      "DOT/USD": "polkadot",     "XRP/USD": "ripple",
+  "LINK/USD": "chainlink",   "LTC/USD": "litecoin",     "BCH/USD": "bitcoin-cash",
+  "XLM/USD": "stellar",      "AVAX/USD": "avalanche-2", "ATOM/USD": "cosmos",
+  "ALGO/USD": "algorand",    "NEAR/USD": "near",         "TRX/USD": "tron",
+  "UNI/USD": "uniswap",
+};
 
 const DEFAULT_PAIRS = {
   "XBT/USD":  { name: "BTC",  symbol: "₿",  color: "#f7931a", price: 84200,  change24h: 0, vol24h: 0 },
@@ -90,6 +101,38 @@ export function usePrices() {
   }, []);
 
   useWebSocket(handleMessage);
+
+  // Fetch real prices + 24h change from CoinGecko every 60s
+  useEffect(() => {
+    const fetchCg = async () => {
+      try {
+        const list = await api.getCoinGeckoMarkets();
+        const byId = {};
+        list.forEach((coin) => { byId[coin.id] = coin; });
+        setPrices((prev) => {
+          const next = { ...prev };
+          for (const [pair, cgId] of Object.entries(CG_PAIR_MAP)) {
+            const coin = byId[cgId];
+            if (!coin) continue;
+            const price = coin.current_price ?? prev[pair]?.price;
+            const change24h = coin.price_change_percentage_24h ?? 0;
+            next[pair] = {
+              ...prev[pair],
+              price,
+              change24h,
+              history: prev[pair]?.history || makeHistory(price),
+            };
+          }
+          return next;
+        });
+      } catch {
+        // CoinGecko unavailable — keep existing prices
+      }
+    };
+    fetchCg();
+    const id = setInterval(fetchCg, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   return prices;
 }

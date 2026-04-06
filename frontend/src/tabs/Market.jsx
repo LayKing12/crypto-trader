@@ -5,7 +5,7 @@ import ScoreRing from "../components/ScoreRing";
 import { api } from "../api";
 import { THEME } from "../theme";
 
-const BOT_API = "https://crypto-trader-production-8ef4.up.railway.app";
+// Railway backend is proxied via Vite /api → https://crypto-trader-production-8ef4.up.railway.app
 
 function badge(val, color) {
   return (
@@ -84,7 +84,7 @@ export default function Market({ prices }) {
     setAiAnalysis(null);
     try {
       const symbol = selected.replace("/", "");
-      const res = await fetch(`${BOT_API}/api/analyze/${symbol}`, {
+      const res = await fetch(`/api/analyze/${symbol}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
