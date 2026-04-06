@@ -204,14 +204,6 @@ export default function Portfolio({ prices }) {
               </div>
             )}
 
-            {error && (
-              <div style={{
-                background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
-                borderRadius: "12px", padding: "12px", marginBottom: "14px",
-                fontSize: "11px", color: THEME.red,
-              }}>⚠️ {error}</div>
-            )}
-
             <div style={{ fontSize: "10px", color: THEME.muted, letterSpacing: "2px", marginBottom: "12px" }}>
               MES POSITIONS
             </div>
