@@ -5,7 +5,7 @@ import { calcPositionSize, calcStopLoss, validateTrade, logTrade } from "../util
 import ScoreRing from "../components/ScoreRing";
 import { THEME } from "../theme";
 
-const BOT_API = "http://localhost:8000";
+const BOT_API = "https://TON-PROJET.railway.app";
 
 const PAIRS = [
   { ws: "XBT/USD",  kraken: "XBTUSD",  name: "BTC",  symbol: "₿",  minVol: 0.0001, decimals: 6 },
