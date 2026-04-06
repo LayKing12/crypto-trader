@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
-import { calcRSI, calcScore, calcExitLevels, currentExitStep, fibFromHistory } from "../utils/technical";
-import { getCagnotte, addToCagnotte, getTradeLog } from "../utils/risk";
+import { calcRSI, calcScore, calcExitLevels, currentExitStep } from "../utils/technical";
+import { getCagnotte, addToCagnotte } from "../utils/risk";
 import ScoreRing from "../components/ScoreRing";
 import { api } from "../api";
 import { THEME } from "../theme";
@@ -80,17 +80,25 @@ const DEMO_HOLDINGS = [
 const ACCENT_COLORS = [THEME.purple, THEME.blue, THEME.cyan, THEME.green];
 
 export default function Portfolio({ prices }) {
-  const [balance, setBalance]   = useState(null);
-  const [error, setError]       = useState("");
-  const [cagnotte, setCagnotte] = useState(getCagnotte());
-  const [tradeLog, setTradeLog] = useState([]);
-  const [view, setView]         = useState("positions");
+  const [balance, setBalance]         = useState(null);
+  const [cagnotte, setCagnotte]       = useState(getCagnotte());
+  const [tradeLog, setTradeLog]       = useState([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
+  const [view, setView]               = useState("positions");
 
   useEffect(() => {
     api.getBalance().then(setBalance).catch(() => {});
-    setTradeLog(getTradeLog());
     setCagnotte(getCagnotte());
   }, []);
+
+  useEffect(() => {
+    if (view !== "trades") return;
+    setTradesLoading(true);
+    api.getTrades()
+      .then(setTradeLog)
+      .catch(() => setTradeLog([]))
+      .finally(() => setTradesLoading(false));
+  }, [view]);
 
   const totalValue = DEMO_HOLDINGS.reduce((s, h) => s + (prices[h.pair]?.price || 0) * h.amount, 0);
   const totalBase  = DEMO_HOLDINGS.reduce((s, h) => s + h.amount * h.avgBuy, 0);
@@ -275,7 +283,16 @@ export default function Portfolio({ prices }) {
             <div style={{ fontSize: "10px", color: THEME.muted, letterSpacing: "2px", marginBottom: "12px" }}>
               HISTORIQUE DES TRADES
             </div>
-            {tradeLog.length === 0 ? (
+            {tradesLoading ? (
+              <div style={{
+                textAlign: "center", color: THEME.muted, fontSize: "13px",
+                padding: "60px 20px", background: THEME.glass,
+                borderRadius: "16px", border: `1px solid ${THEME.border}`,
+              }}>
+                <div style={{ fontSize: "28px", marginBottom: "12px" }}>⟳</div>
+                Chargement…
+              </div>
+            ) : tradeLog.length === 0 ? (
               <div style={{
                 textAlign: "center", color: THEME.muted, fontSize: "13px",
                 padding: "60px 20px", background: THEME.glass,
@@ -285,23 +302,43 @@ export default function Portfolio({ prices }) {
                 Aucun trade enregistré.
               </div>
             ) : tradeLog.map((t) => {
-              const color = t.side === "buy" ? THEME.green : THEME.red;
+              const resultColor = t.result === "win" ? THEME.green : t.result === "loss" ? THEME.red : THEME.yellow;
+              const sideColor   = t.side === "buy" ? THEME.green : THEME.red;
               return (
                 <div key={t.id} style={{
                   background: THEME.glass, border: `1px solid ${THEME.border}`,
-                  borderLeft: `3px solid ${color}`,
+                  borderLeft: `3px solid ${resultColor}`,
                   borderRadius: "14px", padding: "14px", marginBottom: "10px",
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                    <span style={{ fontSize: "13px", color, fontWeight: "700" }}>
-                      {t.side === "buy" ? "▲" : "▼"} {t.name} {t.side.toUpperCase()}
+                    <span style={{ fontSize: "13px", color: sideColor, fontWeight: "700" }}>
+                      {t.side === "buy" ? "▲" : "▼"} {t.pair} {t.side.toUpperCase()}
                     </span>
                     <span style={{ fontSize: "10px", color: THEME.muted }}>
-                      {new Date(t.ts).toLocaleDateString("fr")}
+                      {t.created_at ? new Date(t.created_at).toLocaleDateString("fr") : "—"}
                     </span>
                   </div>
-                  <div style={{ fontSize: "12px", color: THEME.text2 }}>
-                    {t.volume} @ €{t.price?.toLocaleString("fr", { maximumFractionDigits: 2 })} ≈ €{t.euros?.toFixed(2)}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: "12px", color: THEME.text2 }}>
+                      {t.volume?.toFixed(6)} @ €{t.price?.toLocaleString("fr", { maximumFractionDigits: 2 })}
+                      <span style={{ color: THEME.muted }}> ≈ €{t.euros?.toFixed(2)}</span>
+                    </div>
+                    {t.result && t.result !== "open" && (
+                      <span style={{
+                        fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
+                        background: resultColor + "18", color: resultColor,
+                        border: `1px solid ${resultColor}35`, fontWeight: "700",
+                      }}>
+                        {t.pnl_pct != null ? `${t.pnl_pct > 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : t.result.toUpperCase()}
+                      </span>
+                    )}
+                    {t.result === "open" && (
+                      <span style={{
+                        fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
+                        background: THEME.yellow + "18", color: THEME.yellow,
+                        border: `1px solid ${THEME.yellow}35`, fontWeight: "700",
+                      }}>EN COURS</span>
+                    )}
                   </div>
                 </div>
               );

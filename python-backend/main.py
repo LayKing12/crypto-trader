@@ -504,6 +504,14 @@ async def list_trades(
     return [
         {
             "id": str(t.id),
+            # Aliases utilisés par le frontend
+            "pair": t.symbol,
+            "side": "sell" if t.result in ("win", "loss") and t.exit_price else "buy",
+            "price": t.entry_price,
+            "volume": round(t.position_size_usd / t.entry_price, 8) if t.entry_price else 0,
+            "euros": t.position_size_usd,
+            "created_at": t.opened_at.isoformat() if t.opened_at else None,
+            # Champs complets
             "symbol": t.symbol,
             "entry_price": t.entry_price,
             "exit_price": t.exit_price,
