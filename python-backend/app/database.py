@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.pool import AsyncAdaptedQueuePool
+from sqlalchemy.pool import NullPool
 import os
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -10,11 +10,8 @@ if not DATABASE_URL:
 
 engine = create_async_engine(
     DATABASE_URL,
-    poolclass=AsyncAdaptedQueuePool,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    pool_recycle=3600,
+    poolclass=NullPool,
+    echo=False,
 )
 
 print("[DB] Connexion vers Supabase aws-1-eu-north-1...")
