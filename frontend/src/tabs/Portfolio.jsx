@@ -6,6 +6,242 @@ import ScoreRing from "../components/ScoreRing";
 import { api } from "../api";
 import { THEME } from "../theme";
 
+// ── Métadonnées des paires Kraken ──────────────────────────────────────────
+const SYMBOL_META = {
+  BTCUSD:  { name: "Bitcoin",   short: "BTC",  symbol: "₿",  color: "#f7931a" },
+  XBTUSD:  { name: "Bitcoin",   short: "BTC",  symbol: "₿",  color: "#f7931a" },
+  ETHUSD:  { name: "Ethereum",  short: "ETH",  symbol: "Ξ",  color: "#627eea" },
+  SOLUSD:  { name: "Solana",    short: "SOL",  symbol: "◎",  color: "#9945ff" },
+  ADAUSD:  { name: "Cardano",   short: "ADA",  symbol: "₳",  color: "#0033ad" },
+  DOTUSD:  { name: "Polkadot",  short: "DOT",  symbol: "●",  color: "#e6007a" },
+  XRPUSD:  { name: "Ripple",    short: "XRP",  symbol: "✕",  color: "#00aae4" },
+  LINKUSD: { name: "Chainlink", short: "LINK", symbol: "⬡",  color: "#2a5ada" },
+  LTCUSD:  { name: "Litecoin",  short: "LTC",  symbol: "Ł",  color: "#bfbbbb" },
+  BCHUSD:  { name: "Bitcoin Cash", short: "BCH", symbol: "Ƀ", color: "#8dc351" },
+  XLMUSD:  { name: "Stellar",   short: "XLM",  symbol: "✷",  color: "#7d9bcc" },
+  AVAXUSD: { name: "Avalanche", short: "AVAX", symbol: "△",  color: "#e84142" },
+  ATOMUSD: { name: "Cosmos",    short: "ATOM", symbol: "⚛",  color: "#6f7390" },
+  ALGOUSD: { name: "Algorand",  short: "ALGO", symbol: "◈",  color: "#00d190" },
+  NEARUSD: { name: "NEAR",      short: "NEAR", symbol: "Ν",  color: "#00c08b" },
+  TRXUSD:  { name: "TRON",      short: "TRX",  symbol: "T",  color: "#ff0013" },
+  UNIUSD:  { name: "Uniswap",   short: "UNI",  symbol: "♦",  color: "#ff007a" },
+};
+
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr", { day: "2-digit", month: "2-digit" })
+    + " " + d.toLocaleTimeString("fr", { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtDuration(openedAt, closedAt) {
+  if (!openedAt || !closedAt) return null;
+  const ms = new Date(closedAt) - new Date(openedAt);
+  const h  = Math.floor(ms / 3600000);
+  const m  = Math.floor((ms % 3600000) / 60000);
+  if (h === 0) return `${m}min`;
+  return `${h}h ${m}min`;
+}
+
+function fmtPrice(p) {
+  if (p == null) return "—";
+  return p > 100
+    ? p.toLocaleString("fr", { maximumFractionDigits: 2 })
+    : p.toFixed(p < 0.01 ? 6 : 4);
+}
+
+function TradeCard({ t }) {
+  const meta        = SYMBOL_META[t.symbol] || { name: t.symbol, short: t.symbol, symbol: "◈", color: THEME.purple };
+  const isOpen      = t.result === "open";
+  const resultColor = t.result === "win" ? THEME.green : t.result === "loss" ? THEME.red : THEME.yellow;
+  const volume      = t.position_size_usd && t.entry_price ? t.position_size_usd / t.entry_price : null;
+  const duration    = fmtDuration(t.opened_at, t.closed_at);
+
+  // Take-profit progress bar for open trades
+  const tpLevels = t.take_profit_structure
+    ? Object.entries(t.take_profit_structure)
+        .map(([label, v]) => ({ label, target: v.target_price, sell: v.sell_pct }))
+        .sort((a, b) => a.target - b.target)
+    : [];
+
+  return (
+    <div style={{
+      background: THEME.glass,
+      border: `1px solid ${resultColor}28`,
+      borderLeft: `3px solid ${resultColor}`,
+      borderRadius: "16px", marginBottom: "12px", overflow: "hidden",
+    }}>
+      {/* ── En-tête ── */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "12px 14px 10px",
+        borderBottom: `1px solid ${THEME.border}`,
+        background: `linear-gradient(135deg, ${meta.color}0d, transparent)`,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{
+            width: "38px", height: "38px", borderRadius: "12px",
+            background: `${meta.color}20`, border: `1px solid ${meta.color}40`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "18px", color: meta.color, fontWeight: "700",
+          }}>{meta.symbol}</div>
+          <div>
+            <div style={{ fontSize: "14px", fontWeight: "700", color: THEME.text }}>{meta.name}</div>
+            <div style={{ display: "flex", gap: "6px", marginTop: "3px", alignItems: "center" }}>
+              <span style={{
+                fontSize: "9px", padding: "1px 7px", borderRadius: "20px", fontWeight: "700",
+                background: THEME.green + "18", color: THEME.green, border: `1px solid ${THEME.green}30`,
+              }}>▲ ACHAT</span>
+              {t.is_paper && (
+                <span style={{
+                  fontSize: "9px", padding: "1px 7px", borderRadius: "20px", fontWeight: "600",
+                  background: THEME.purple + "18", color: THEME.purple, border: `1px solid ${THEME.purple}30`,
+                }}>PAPER</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          {/* Badge résultat */}
+          <span style={{
+            display: "inline-block", fontSize: "11px", padding: "3px 10px",
+            borderRadius: "20px", fontWeight: "800",
+            background: resultColor + "20", color: resultColor,
+            border: `1px solid ${resultColor}40`,
+          }}>
+            {isOpen ? "⏳ EN COURS" : t.result === "win" ? "✓ WIN" : "✗ LOSS"}
+          </span>
+          <div style={{ fontSize: "10px", color: THEME.muted, marginTop: "4px" }}>
+            {fmtDateTime(t.opened_at)}
+          </div>
+          {duration && (
+            <div style={{ fontSize: "9px", color: THEME.muted }}>⏱ {duration}</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Corps ── */}
+      <div style={{ padding: "12px 14px" }}>
+        {/* Ligne prix */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+          <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "10px", padding: "8px 10px" }}>
+            <div style={{ fontSize: "9px", color: THEME.muted, letterSpacing: "1px", marginBottom: "2px" }}>ENTRÉE</div>
+            <div style={{ fontSize: "14px", fontWeight: "700", color: THEME.text }}>${fmtPrice(t.entry_price)}</div>
+          </div>
+          <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: "10px", padding: "8px 10px" }}>
+            <div style={{ fontSize: "9px", color: THEME.muted, letterSpacing: "1px", marginBottom: "2px" }}>
+              {isOpen ? "STOP-LOSS" : "SORTIE"}
+            </div>
+            <div style={{ fontSize: "14px", fontWeight: "700", color: isOpen ? THEME.red : THEME.text }}>
+              ${isOpen ? fmtPrice(t.stop_loss_price) : fmtPrice(t.exit_price)}
+            </div>
+          </div>
+        </div>
+
+        {/* Montant investi + volume */}
+        <div style={{ display: "flex", gap: "8px", marginBottom: t.pnl_pct != null || isOpen ? "10px" : "0" }}>
+          {t.position_size_usd != null && (
+            <div style={{ flex: 1, background: "rgba(0,0,0,0.2)", borderRadius: "10px", padding: "8px 10px" }}>
+              <div style={{ fontSize: "9px", color: THEME.muted, letterSpacing: "1px", marginBottom: "2px" }}>INVESTI</div>
+              <div style={{ fontSize: "13px", fontWeight: "700", color: THEME.blue }}>${t.position_size_usd.toFixed(2)}</div>
+            </div>
+          )}
+          {volume != null && (
+            <div style={{ flex: 1, background: "rgba(0,0,0,0.2)", borderRadius: "10px", padding: "8px 10px" }}>
+              <div style={{ fontSize: "9px", color: THEME.muted, letterSpacing: "1px", marginBottom: "2px" }}>VOLUME</div>
+              <div style={{ fontSize: "13px", fontWeight: "700", color: meta.color }}>
+                {volume < 0.001 ? volume.toFixed(6) : volume.toFixed(4)} {meta.short}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* P&L si fermé */}
+        {!isOpen && t.pnl_pct != null && (
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+            background: resultColor + "10", borderRadius: "10px", padding: "10px 12px",
+            border: `1px solid ${resultColor}25`, marginBottom: "10px",
+          }}>
+            <div>
+              <div style={{ fontSize: "9px", color: THEME.muted, letterSpacing: "1px", marginBottom: "2px" }}>P&L</div>
+              <div style={{ fontSize: "20px", fontWeight: "800", color: resultColor }}>
+                {t.pnl_pct > 0 ? "+" : ""}{t.pnl_pct.toFixed(2)}%
+              </div>
+            </div>
+            {t.pnl_usd != null && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: "9px", color: THEME.muted, letterSpacing: "1px", marginBottom: "2px" }}>USD</div>
+                <div style={{ fontSize: "16px", fontWeight: "700", color: resultColor }}>
+                  {t.pnl_usd > 0 ? "+" : ""}${t.pnl_usd.toFixed(2)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Stop-loss + régime pour trades fermés */}
+        {!isOpen && (
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            <span style={{
+              fontSize: "9px", padding: "2px 8px", borderRadius: "20px",
+              background: THEME.red + "15", color: THEME.red, border: `1px solid ${THEME.red}25`,
+            }}>SL ${fmtPrice(t.stop_loss_price)}</span>
+            {t.regime_at_entry && (
+              <span style={{
+                fontSize: "9px", padding: "2px 8px", borderRadius: "20px",
+                background: THEME.purple + "15", color: THEME.purple, border: `1px solid ${THEME.purple}25`,
+              }}>{t.regime_at_entry}</span>
+            )}
+            {t.confidence_at_entry != null && (
+              <span style={{
+                fontSize: "9px", padding: "2px 8px", borderRadius: "20px",
+                background: THEME.blue + "15", color: THEME.blue, border: `1px solid ${THEME.blue}25`,
+              }}>confiance {t.confidence_at_entry.toFixed(0)}%</span>
+            )}
+          </div>
+        )}
+
+        {/* Take-profits pour trades ouverts */}
+        {isOpen && tpLevels.length > 0 && (
+          <div style={{
+            background: "rgba(0,0,0,0.2)", borderRadius: "10px", padding: "10px 12px",
+            marginBottom: "8px",
+          }}>
+            <div style={{ fontSize: "9px", color: THEME.purple, letterSpacing: "1px", marginBottom: "8px" }}>
+              TAKE-PROFITS
+            </div>
+            {tpLevels.map((tp, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "5px" }}>
+                <div style={{
+                  width: "6px", height: "6px", borderRadius: "50%",
+                  background: THEME.purple, flexShrink: 0,
+                }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
+                    <span style={{ fontSize: "10px", color: THEME.text2 }}>${fmtPrice(tp.target)}</span>
+                    <span style={{ fontSize: "9px", color: THEME.muted }}>vendre {(tp.sell * 100).toFixed(0)}%</span>
+                  </div>
+                  <div style={{ height: "3px", background: "rgba(139,92,246,0.15)", borderRadius: "2px" }}>
+                    <div style={{
+                      height: "100%", borderRadius: "2px",
+                      width: `${Math.min(100, ((t.entry_price - t.stop_loss_price) / (tp.target - t.stop_loss_price)) * 100)}%`,
+                      background: `linear-gradient(90deg, ${THEME.purple}, ${THEME.blue})`,
+                    }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: "9px", color: THEME.red, marginTop: "6px" }}>
+              SL ${fmtPrice(t.stop_loss_price)}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function badge(val, color) {
   return (
     <span style={{
@@ -80,11 +316,11 @@ const DEMO_HOLDINGS = [
 const ACCENT_COLORS = [THEME.purple, THEME.blue, THEME.cyan, THEME.green];
 
 export default function Portfolio({ prices }) {
-  const [balance, setBalance]         = useState(null);
-  const [cagnotte, setCagnotte]       = useState(getCagnotte());
-  const [tradeLog, setTradeLog]       = useState([]);
+  const [balance, setBalance]             = useState(null);
+  const [cagnotte, setCagnotte]           = useState(getCagnotte());
+  const [tradeLog, setTradeLog]           = useState([]);
   const [tradesLoading, setTradesLoading] = useState(false);
-  const [view, setView]               = useState("positions");
+  const [view, setView]                   = useState("positions");
 
   useEffect(() => {
     api.getBalance().then(setBalance).catch(() => {});
@@ -95,8 +331,13 @@ export default function Portfolio({ prices }) {
     if (view !== "trades") return;
     setTradesLoading(true);
     api.getTrades()
-      .then(setTradeLog)
-      .catch(() => setTradeLog([]))
+      .then((data) => {
+        setTradeLog(Array.isArray(data) ? data : []);
+      })
+      .catch((e) => {
+        console.error("[Portfolio] getTrades error:", e);
+        setTradeLog([]);
+      })
       .finally(() => setTradesLoading(false));
   }, [view]);
 
@@ -293,48 +534,7 @@ export default function Portfolio({ prices }) {
                 <div style={{ fontSize: "40px", marginBottom: "12px" }}>📋</div>
                 Aucun trade enregistré.
               </div>
-            ) : tradeLog.map((t) => {
-              const resultColor = t.result === "win" ? THEME.green : t.result === "loss" ? THEME.red : THEME.yellow;
-              const sideColor   = t.side === "buy" ? THEME.green : THEME.red;
-              return (
-                <div key={t.id} style={{
-                  background: THEME.glass, border: `1px solid ${THEME.border}`,
-                  borderLeft: `3px solid ${resultColor}`,
-                  borderRadius: "14px", padding: "14px", marginBottom: "10px",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                    <span style={{ fontSize: "13px", color: sideColor, fontWeight: "700" }}>
-                      {t.side === "buy" ? "▲" : "▼"} {t.pair} {t.side.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: "10px", color: THEME.muted }}>
-                      {t.created_at ? new Date(t.created_at).toLocaleDateString("fr") : "—"}
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontSize: "12px", color: THEME.text2 }}>
-                      {t.volume?.toFixed(6)} @ €{t.price?.toLocaleString("fr", { maximumFractionDigits: 2 })}
-                      <span style={{ color: THEME.muted }}> ≈ €{t.euros?.toFixed(2)}</span>
-                    </div>
-                    {t.result && t.result !== "open" && (
-                      <span style={{
-                        fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                        background: resultColor + "18", color: resultColor,
-                        border: `1px solid ${resultColor}35`, fontWeight: "700",
-                      }}>
-                        {t.pnl_pct != null ? `${t.pnl_pct > 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : t.result.toUpperCase()}
-                      </span>
-                    )}
-                    {t.result === "open" && (
-                      <span style={{
-                        fontSize: "10px", padding: "2px 8px", borderRadius: "20px",
-                        background: THEME.yellow + "18", color: THEME.yellow,
-                        border: `1px solid ${THEME.yellow}35`, fontWeight: "700",
-                      }}>EN COURS</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            ) : tradeLog.map((t) => <TradeCard key={t.id} t={t} />)}
           </>
         )}
 
