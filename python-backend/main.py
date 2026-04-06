@@ -27,7 +27,6 @@ from app.services import (
     performance_tracker,
     market_data_service,
     whatsapp_service,
-    blockchain_service,
 )
 from app.utils.logging_utils import configure_logging, get_logger, log_decision
 
@@ -35,29 +34,63 @@ configure_logging()
 log = get_logger("main")
 settings = get_settings()
 
-# ── Paires surveillées 24h/24 ──────────────────────────────────────────────
-# FTMUSD, SANDUSD, MANAUSD, APEUSD retirées : données OHLC insuffisantes sur Kraken
+# ── Configuration trading ──────────────────────────────────────────────────
+AUTO_TRADE_INTERVAL = 5 * 60  # 5 minutes pour l'entraînement
+
 WATCHED_PAIRS = [
     "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD",
-    "DOTUSD", "MATICUSD", "LINKUSD", "AVAXUSD", "ATOMUSD",
-    "NEARUSD", "ALGOUSD",
+    "DOTUSD", "LINKUSD", "AVAXUSD", "ATOMUSD", "NEARUSD",
+    "ALGOUSD", "LTCUSD",
 ]
-
-AUTO_TRADE_INTERVAL = 10 * 60  # 10 minutes
 
 # ── État global du bot ─────────────────────────────────────────────────────
 _bot_task: asyncio.Task | None = None
 _bot_running: bool = False
 
 
+# ── Filtre BTC dominant ────────────────────────────────────────────────────
+
+async def get_btc_market_regime() -> str:
+    """
+    Analyse le BTC pour déterminer le régime global du marché.
+    Retourne: 'bull', 'bear', 'neutral'
+    """
+    try:
+        btc_price = await market_data_service.get_price("BTCUSD")
+        candles = await market_data_service.get_klines("BTCUSD", "15m")
+        if len(candles) < 10:
+            return "neutral"
+
+        closes = [c["close"] for c in candles[-20:]]
+        if len(closes) < 2:
+            return "neutral"
+
+        # Variation BTC sur 1h (4 bougies de 15min)
+        recent = closes[-1]
+        hour_ago = closes[-5] if len(closes) >= 5 else closes[0]
+        btc_change_1h = (recent - hour_ago) / hour_ago * 100
+
+        if btc_change_1h > 2.0:
+            log.info("btc_regime", regime="bull", change_1h=round(btc_change_1h, 2))
+            return "bull"
+        elif btc_change_1h < -2.0:
+            log.info("btc_regime", regime="bear", change_1h=round(btc_change_1h, 2))
+            return "bear"
+        return "neutral"
+    except Exception as e:
+        log.error("btc_regime_error", error=str(e))
+        return "neutral"
+
+
 # ── Pipeline d'analyse ─────────────────────────────────────────────────────
 
-async def _run_analysis(symbol: str, req: "AnalyzeRequest", db: AsyncSession, save_to_db: bool = True) -> dict:
-    """
-    Pipeline d'analyse complet.
-    save_to_db=False dans la boucle auto pour économiser les requêtes Supabase :
-    on n'écrit en DB que les trades exécutés (sinon ~52k insertions/mois).
-    """
+async def _run_analysis(
+    symbol: str,
+    req: "AnalyzeRequest",
+    db: AsyncSession,
+    btc_regime: str = "neutral"
+) -> dict:
+    """Pipeline d'analyse complet avec filtre BTC dominant."""
     sym = symbol.upper()
 
     candles = await market_data_service.get_klines(sym, req.interval)
@@ -71,16 +104,9 @@ async def _run_analysis(symbol: str, req: "AnalyzeRequest", db: AsyncSession, sa
 
     fear_greed = await market_data_service.get_fear_greed_index()
     ind = indicator_engine.compute_indicators(sym, closes, highs, lows, volumes)
-
-    # Whale score on-chain (blockchain_service) si BTC/ETH, sinon valeur manuelle
-    # La requête est mise en cache 5 min → pas de surcharge API
-    effective_whale_score = req.whale_score
-    if req.whale_score == 50.0:  # valeur par défaut → enrichir avec données on-chain
-        effective_whale_score = await blockchain_service.get_whale_score(sym)
-
     scores = scoring_engine.compute_scores(
         ind,
-        whale_score=effective_whale_score,
+        whale_score=req.whale_score,
         sentiment_score=req.sentiment_score,
         oi_delta_pct=req.oi_delta_pct,
         funding_rate=req.funding_rate,
@@ -94,11 +120,21 @@ async def _run_analysis(symbol: str, req: "AnalyzeRequest", db: AsyncSession, sa
         state=state,
     )
 
+    # ── Biais technique avec filtre BTC ──
+    btc_boost = 5.0 if btc_regime == "bull" else -5.0 if btc_regime == "bear" else 0.0
+    adjusted_score = scores.market_score + btc_boost
+
     technical_bias = "neutral"
-    if scores.market_score > 65 and ind.regime == "bull_trend":
+    if adjusted_score > 55:
         technical_bias = "long"
-    elif scores.market_score < 35 or ind.regime == "bear_trend":
+    elif adjusted_score < 45:
         technical_bias = "short"
+
+    # ── Mode défensif si BTC en bear fort ──
+    if btc_regime == "bear" and sym != "BTCUSD":
+        if technical_bias == "long":
+            technical_bias = "neutral"
+            log.info("btc_filter_blocked_long", symbol=sym)
 
     claude_result = {}
     execute_ok = True
@@ -116,46 +152,47 @@ async def _run_analysis(symbol: str, req: "AnalyzeRequest", db: AsyncSession, sa
         )
         execute_ok, claude_reason = claude_service.should_execute(technical_bias, claude_result)
 
+    # ── Décision finale — seuil abaissé à 50 ──
     if not assessment.trading_enabled:
         final_decision = "disabled"
     elif technical_bias == "neutral":
         final_decision = "skip_neutral"
     elif not execute_ok:
         final_decision = f"skip_{claude_reason}"
-    elif scores.market_score < 62:
+    elif scores.market_score < 50:
         final_decision = "skip_low_score"
     else:
         final_decision = "execute"
 
-    if save_to_db:
-        snapshot = MarketSnapshot(
-            symbol=sym, price=ind.price, rsi=ind.rsi,
-            ema20=ind.ema20, ema50=ind.ema50, ema200=ind.ema200,
-            atr=ind.atr, volatility_30d=ind.volatility_30d,
-            fear_greed_index=fear_greed, whale_score=req.whale_score,
-            sentiment_score=req.sentiment_score, funding_rate=req.funding_rate,
-            oi_delta_pct=req.oi_delta_pct, regime=ind.regime,
-        )
-        db.add(snapshot)
+    snapshot = MarketSnapshot(
+        symbol=sym, price=ind.price, rsi=ind.rsi,
+        ema20=ind.ema20, ema50=ind.ema50, ema200=ind.ema200,
+        atr=ind.atr, volatility_30d=ind.volatility_30d,
+        fear_greed_index=fear_greed, whale_score=req.whale_score,
+        sentiment_score=req.sentiment_score, funding_rate=req.funding_rate,
+        oi_delta_pct=req.oi_delta_pct, regime=ind.regime,
+    )
+    db.add(snapshot)
 
-        signal = SignalGenerated(
-            symbol=sym,
-            market_score=scores.market_score,
-            confidence_score=assessment.confidence_score,
-            risk_score=assessment.risk_score,
-            suggested_bias=technical_bias,
-            final_decision=final_decision,
-            position_size_pct=assessment.position_size_pct,
-            claude_analysis_json=claude_result,
-        )
-        db.add(signal)
-        await db.flush()
+    signal = SignalGenerated(
+        symbol=sym,
+        market_score=scores.market_score,
+        confidence_score=assessment.confidence_score,
+        risk_score=assessment.risk_score,
+        suggested_bias=technical_bias,
+        final_decision=final_decision,
+        position_size_pct=assessment.position_size_pct,
+        claude_analysis_json=claude_result,
+    )
+    db.add(signal)
+    await db.flush()
 
     log_decision(
         log, sym,
-        inputs={"rsi": ind.rsi, "regime": ind.regime, "price": ind.price},
+        inputs={"rsi": ind.rsi, "regime": ind.regime, "price": ind.price, "btc_regime": btc_regime},
         scores={
             "market_score": scores.market_score,
+            "adjusted_score": adjusted_score,
             "confidence_score": assessment.confidence_score,
             "risk_score": assessment.risk_score,
         },
@@ -166,8 +203,10 @@ async def _run_analysis(symbol: str, req: "AnalyzeRequest", db: AsyncSession, sa
     return {
         "symbol": sym, "price": ind.price, "regime": ind.regime,
         "rsi": ind.rsi, "ema20": ind.ema20, "ema50": ind.ema50, "ema200": ind.ema200,
+        "btc_regime": btc_regime,
         "scores": {
             "market_score": scores.market_score,
+            "adjusted_score": adjusted_score,
             "confidence_score": assessment.confidence_score,
             "risk_score": assessment.risk_score,
             "confluence_count": scores.confluence_count,
@@ -183,7 +222,6 @@ async def _run_analysis(symbol: str, req: "AnalyzeRequest", db: AsyncSession, sa
 # ── Stop-loss checker ──────────────────────────────────────────────────────
 
 async def _check_stop_losses(db: AsyncSession, symbol: str):
-    """Vérifie et ferme les trades dont le stop-loss est atteint."""
     open_trades = await paper_trading_engine.get_open_trades(db)
     for trade in open_trades:
         if trade.symbol != symbol:
@@ -201,26 +239,23 @@ async def _check_stop_losses(db: AsyncSession, symbol: str):
 # ── Boucle automatique 24h/24 ──────────────────────────────────────────────
 
 async def auto_trading_loop():
-    """
-    Analyse toutes les paires toutes les 10 minutes.
-    Bougies 15m pour capturer les mouvements intraday.
-    Seuil market_score >= 62 pour réduire les faux signaux.
-    DB write uniquement si trade exécuté (économie Supabase : ~50 req/mois vs 52k).
-    """
     global _bot_running
-    await asyncio.sleep(30)  # Attendre que le serveur soit prêt
+    await asyncio.sleep(30)
     log.info("auto_trading_loop_started", pairs=len(WATCHED_PAIRS), interval_min=AUTO_TRADE_INTERVAL // 60)
 
     while _bot_running:
         try:
+            # 1. Analyse du régime BTC en premier
+            btc_regime = await get_btc_market_regime()
+            log.info("auto_cycle_start", btc_regime=btc_regime, pairs=len(WATCHED_PAIRS))
+
             async with AsyncSessionLocal() as db:
                 for symbol in WATCHED_PAIRS:
                     if not _bot_running:
                         break
                     try:
-                        # save_to_db=False : analyse en mémoire, 0 insertion Supabase
                         req = AnalyzeRequest(symbol=symbol, interval="15m")
-                        analysis = await _run_analysis(symbol, req, db, save_to_db=False)
+                        analysis = await _run_analysis(symbol, req, db, btc_regime)
 
                         if analysis["decision"] == "execute":
                             price      = analysis["price"]
@@ -230,15 +265,13 @@ async def auto_trading_loop():
                             regime     = analysis["regime"]
 
                             if settings.paper_trading:
-                                # Ici on écrit en DB (trade réel)
                                 trade = await paper_trading_engine.open_paper_trade(
                                     db, symbol, price, size_pct, confidence, risk, regime
                                 )
                                 whatsapp_service.notify_trade_opened(
                                     symbol, price, size_pct, trade.stop_loss_price, True
                                 )
-                                log.info("auto_paper_trade_opened", symbol=symbol, price=price,
-                                         score=analysis["scores"]["market_score"])
+                                log.info("auto_paper_trade_opened", symbol=symbol, price=price, btc_regime=btc_regime)
                             else:
                                 order = await execution_service.execute_trade(
                                     symbol, price, size_pct, analysis["stop_loss_pct"]
@@ -252,10 +285,9 @@ async def auto_trading_loop():
                                 whatsapp_service.notify_trade_opened(
                                     symbol, actual_price, size_pct, order["stop_loss_price"], False
                                 )
-                                log.info("auto_live_trade_opened", symbol=symbol, price=actual_price)
 
                         await _check_stop_losses(db, symbol)
-                        await asyncio.sleep(2)  # 2s entre chaque paire pour ne pas throttler Kraken
+                        await asyncio.sleep(1)
 
                     except Exception as e:
                         log.error("auto_trade_symbol_error", symbol=symbol, error=str(e))
@@ -278,7 +310,6 @@ async def lifespan(app: FastAPI):
     global _bot_task, _bot_running
     await init_db()
     await market_data_service.start_ws_listener()
-    # Démarrage automatique du bot au lancement
     _bot_running = True
     _bot_task = asyncio.create_task(auto_trading_loop())
     log.info("cryptomind_started", paper_trading=settings.paper_trading)
@@ -292,11 +323,7 @@ async def lifespan(app: FastAPI):
 
 # ── App ────────────────────────────────────────────────────────────────────
 
-app = FastAPI(
-    title="CryptoMind Risk Engine",
-    version="1.0.0",
-    lifespan=lifespan,
-)
+app = FastAPI(title="CryptoMind Risk Engine", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -306,11 +333,11 @@ app.add_middleware(
 )
 
 
-# ── Pydantic schemas ───────────────────────────────────────────────────────
+# ── Schemas ────────────────────────────────────────────────────────────────
 
 class AnalyzeRequest(BaseModel):
     symbol: str
-    interval: str = "1h"
+    interval: str = "15m"
     whale_score: float = 50.0
     sentiment_score: float = 50.0
     oi_delta_pct: float | None = None
@@ -368,7 +395,7 @@ async def bot_status():
     }
 
 
-# ── Core: Analyze & Signal ─────────────────────────────────────────────────
+# ── Analyze ────────────────────────────────────────────────────────────────
 
 @app.post("/api/analyze/{symbol}")
 async def analyze_symbol(
@@ -377,7 +404,8 @@ async def analyze_symbol(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     try:
-        return await _run_analysis(symbol, req, db)
+        btc_regime = await get_btc_market_regime()
+        return await _run_analysis(symbol, req, db, btc_regime)
     except ValueError as e:
         raise HTTPException(422, str(e))
 
@@ -390,9 +418,9 @@ async def open_trade(
     req: AnalyzeRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Run full analysis then open a trade if decision == 'execute'."""
     try:
-        analysis = await _run_analysis(symbol, req, db)
+        btc_regime = await get_btc_market_regime()
+        analysis = await _run_analysis(symbol, req, db, btc_regime)
     except ValueError as e:
         raise HTTPException(422, str(e))
 
@@ -440,7 +468,7 @@ async def close_trade(
     return {"status": "closed", "pnl_pct": trade.pnl_pct, "pnl_usd": trade.pnl_usd, "result": trade.result}
 
 
-# ── Dashboard data ─────────────────────────────────────────────────────────
+# ── Dashboard ──────────────────────────────────────────────────────────────
 
 @app.get("/api/performance")
 async def get_performance(db: Annotated[AsyncSession, Depends(get_db)]):
@@ -494,12 +522,6 @@ async def list_trades(
     ]
 
 
-@app.get("/api/onchain")
-async def get_onchain():
-    """Résumé on-chain BTC + ETH pour le dashboard (cache 5 min)."""
-    return await blockchain_service.get_onchain_summary()
-
-
 @app.get("/api/price/{symbol}")
 async def get_price(symbol: str):
     price = await market_data_service.get_price(symbol.upper())
@@ -534,14 +556,18 @@ async def list_signals(
     ]
 
 
+@app.get("/api/market/regime")
+async def market_regime():
+    """Retourne le régime BTC actuel — utile pour le dashboard."""
+    regime = await get_btc_market_regime()
+    return {"btc_regime": regime}
+
+
 # ── Emergency ──────────────────────────────────────────────────────────────
 
 @app.post("/api/panic")
 async def panic_button(db: Annotated[AsyncSession, Depends(get_db)]):
-    """PANIC BUTTON — ferme tous les trades ouverts immédiatement."""
     global _bot_running, _bot_task
-
-    # Arrêt du bot
     _bot_running = False
     if _bot_task:
         _bot_task.cancel()
@@ -569,5 +595,4 @@ async def panic_button(db: Annotated[AsyncSession, Depends(get_db)]):
             {"id": str(t.id), "symbol": t.symbol, "entry_price": t.entry_price}
             for t in live_open
         ],
-        "message": "Bot arrêté. Fermez les positions live manuellement sur Kraken si listées ci-dessus.",
     }

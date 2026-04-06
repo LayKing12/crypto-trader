@@ -5,6 +5,8 @@ import ScoreRing from "../components/ScoreRing";
 import { api } from "../api";
 import { THEME } from "../theme";
 
+const BOT_API = "https://crypto-trader-production-8ef4.up.railway.app";
+
 function badge(val, color) {
   return (
     <span style={{
@@ -29,7 +31,7 @@ export default function Market({ prices }) {
   const [selected, setSelected]     = useState("XBT/USD");
   const [ohlcData, setOhlcData]     = useState([]);
   const [cgData, setCgData]         = useState({});
-  const [aiAnalysis, setAiAnalysis] = useState("");
+  const [aiAnalysis, setAiAnalysis] = useState(null);
   const [aiLoading, setAiLoading]   = useState(false);
   const [interval, setIntervalVal]  = useState(60);
   const [search, setSearch]         = useState("");
@@ -76,17 +78,56 @@ export default function Market({ prices }) {
     !search || (prices[p]?.name || "").toLowerCase().includes(search.toLowerCase()) || p.toLowerCase().includes(search.toLowerCase())
   );
 
+  // ✅ callAI pointe vers Railway
   const callAI = async () => {
-    setAiLoading(true); setAiAnalysis("");
+    setAiLoading(true);
+    setAiAnalysis(null);
     try {
-      const data = await api.getAIAnalysisFull({
-        coin: sel.name || selected, price: sel.price, change24h: sel.change24h,
-        rsi: parseFloat(rsi.toFixed(1)), score, fib, elliottWave: elliott,
-        stopLoss: sel.price ? parseFloat((sel.price * 0.93).toFixed(4)) : null,
+      const symbol = selected.replace("/", "");
+      const res = await fetch(`${BOT_API}/api/analyze/${symbol}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol,
+          whale_score: 50,
+          sentiment_score: 50,
+        }),
       });
-      setAiAnalysis(data.text);
-    } catch (e) { setAiAnalysis("Erreur: " + e.message); }
+      const data = await res.json();
+      setAiAnalysis(data);
+    } catch (e) {
+      setAiAnalysis({ error: e.message });
+    }
     setAiLoading(false);
+  };
+
+  const renderAiAnalysis = () => {
+    if (!aiAnalysis) return null;
+    if (aiAnalysis.error) return <div style={{ color: THEME.red }}>{aiAnalysis.error}</div>;
+    return (
+      <div style={{ fontSize: "12px", lineHeight: "1.8", color: THEME.text2 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+          {[
+            { label: "PRIX", val: `€${aiAnalysis.price?.toLocaleString("fr", { maximumFractionDigits: 2 })}`, color: THEME.text },
+            { label: "RÉGIME", val: aiAnalysis.regime, color: aiAnalysis.regime === "bull_trend" ? THEME.green : THEME.red },
+            { label: "DÉCISION", val: aiAnalysis.decision?.toUpperCase(), color: aiAnalysis.decision === "execute" ? THEME.green : THEME.yellow },
+            { label: "RSI", val: aiAnalysis.rsi?.toFixed(1), color: aiAnalysis.rsi > 70 ? THEME.red : aiAnalysis.rsi < 30 ? THEME.green : THEME.yellow },
+            { label: "MARKET SCORE", val: aiAnalysis.scores?.market_score?.toFixed(1), color: THEME.purple },
+            { label: "CONFIANCE", val: aiAnalysis.scores?.confidence_score?.toFixed(1), color: THEME.blue },
+          ].map((item) => (
+            <div key={item.label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: "8px", padding: "8px" }}>
+              <div style={{ fontSize: "9px", color: THEME.muted, marginBottom: "2px" }}>{item.label}</div>
+              <div style={{ fontSize: "14px", fontWeight: "700", color: item.color }}>{item.val}</div>
+            </div>
+          ))}
+        </div>
+        {aiAnalysis.claude_analysis?.macro_comment && (
+          <div style={{ padding: "10px", background: "rgba(139,92,246,0.08)", borderRadius: "8px", border: `1px solid ${THEME.borderP}`, fontStyle: "italic" }}>
+            💬 {aiAnalysis.claude_analysis.macro_comment}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -316,9 +357,10 @@ export default function Market({ prices }) {
             </div>
             <ScoreRing score={score} size={46} />
           </div>
+
           {aiAnalysis ? (
-            <div style={{ fontSize: "12px", lineHeight: "1.8", color: THEME.text2, whiteSpace: "pre-wrap", maxHeight: "300px", overflowY: "auto", marginBottom: "12px", padding: "12px", background: "rgba(0,0,0,0.2)", borderRadius: "10px" }}>
-              {aiAnalysis}
+            <div style={{ marginBottom: "12px", padding: "12px", background: "rgba(0,0,0,0.2)", borderRadius: "10px" }}>
+              {renderAiAnalysis()}
             </div>
           ) : (
             <div style={{ fontSize: "11px", color: THEME.muted, fontStyle: "italic", marginBottom: "12px", lineHeight: "1.6" }}>
@@ -326,6 +368,7 @@ export default function Market({ prices }) {
               Elle vous dit OUI JE TRADE ou NON J'ATTENDS.
             </div>
           )}
+
           <button onClick={callAI} disabled={aiLoading} style={{
             width: "100%", padding: "14px", borderRadius: "12px",
             background: aiLoading ? THEME.glass : THEME.gradP,

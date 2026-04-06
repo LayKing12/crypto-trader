@@ -1,6 +1,6 @@
 """
 Paper Trading Engine — simulates trades in DB without touching Kraken.
-Activated when PAPER_TRADING=true in config.
+Take profits rapides pour l'entraînement.
 """
 from __future__ import annotations
 import uuid
@@ -15,12 +15,16 @@ import app.services.whatsapp_service as wa
 log = get_logger(__name__)
 settings = get_settings()
 
+# ── Take profits rapides pour générer plus de trades ──
 TAKE_PROFIT_LEVELS = [
-    (50.0, 0.10),
-    (100.0, 0.20),
-    (150.0, 0.20),
-    (200.0, 0.40),
+    (3.0,  0.25),   # +3%  → vend 25%
+    (5.0,  0.25),   # +5%  → vend 25%
+    (8.0,  0.25),   # +8%  → vend 25%
+    (15.0, 0.25),   # +15% → vend 25%
 ]
+
+# Stop-loss serré pour protéger le capital
+STOP_LOSS_PCT = 2.0
 
 
 async def open_paper_trade(
@@ -32,11 +36,14 @@ async def open_paper_trade(
     risk_at_entry: float,
     regime_at_entry: str,
 ) -> Trade:
-    stop_loss_price = round(entry_price * (1 - settings.stop_loss_pct / 100), 4)
+    stop_loss_price = round(entry_price * (1 - STOP_LOSS_PCT / 100), 4)
     position_size_usd = settings.total_capital_usd * position_size_pct / 100
 
     take_profit_structure = {
-        f"+{int(pct)}%": {"sell_pct": exit_pct, "target_price": round(entry_price * (1 + pct / 100), 4)}
+        f"+{pct}%": {
+            "sell_pct": exit_pct,
+            "target_price": round(entry_price * (1 + pct / 100), 4)
+        }
         for pct, exit_pct in TAKE_PROFIT_LEVELS
     }
 
@@ -65,9 +72,9 @@ async def open_paper_trade(
         stop_loss=stop_loss_price,
         size_pct=position_size_pct,
         size_usd=position_size_usd,
+        take_profits=[f"+{p}%" for p, _ in TAKE_PROFIT_LEVELS],
     )
 
-    # ── Notification WhatsApp ──
     wa.notify_trade_opened(
         symbol=symbol,
         price=entry_price,
@@ -106,7 +113,6 @@ async def close_paper_trade(
         result=trade.result,
     )
 
-    # ── Notification WhatsApp ──
     wa.notify_trade_closed(
         symbol=trade.symbol,
         pnl_pct=pnl_pct,
@@ -118,8 +124,21 @@ async def close_paper_trade(
 
 
 async def check_stop_loss(current_price: float, trade: Trade) -> bool:
-    """Returns True if stop-loss is hit."""
+    """Vérifie si le stop-loss est atteint."""
     return current_price <= trade.stop_loss_price
+
+
+async def check_take_profit(current_price: float, trade: Trade) -> bool:
+    """Vérifie si le premier take profit est atteint."""
+    if not trade.take_profit_structure:
+        return False
+    first_tp = min(
+        [level["target_price"] for level in trade.take_profit_structure.values()],
+        default=None
+    )
+    if first_tp and current_price >= first_tp:
+        return True
+    return False
 
 
 async def get_open_trades(db: AsyncSession) -> list[Trade]:
