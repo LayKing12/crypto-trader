@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
 import { useWebSocket } from "./useWebSocket";
-import { api } from "../api";
 
 // Derived indicator helpers
 export function calcRSI(change) {
@@ -34,14 +33,23 @@ function makeHistory(price, n = 50) {
   return data;
 }
 
-// Maps Kraken pair → CoinGecko coin id
-const CG_PAIR_MAP = {
-  "XBT/USD": "bitcoin",      "ETH/USD": "ethereum",     "SOL/USD": "solana",
-  "ADA/USD": "cardano",      "DOT/USD": "polkadot",     "XRP/USD": "ripple",
-  "LINK/USD": "chainlink",   "LTC/USD": "litecoin",     "BCH/USD": "bitcoin-cash",
-  "XLM/USD": "stellar",      "AVAX/USD": "avalanche-2", "ATOM/USD": "cosmos",
-  "ALGO/USD": "algorand",    "NEAR/USD": "near",         "TRX/USD": "tron",
-  "UNI/USD": "uniswap",
+const KRAKEN_MAP = {
+  "XBT/USD":  "XBTUSD",
+  "ETH/USD":  "ETHUSD",
+  "SOL/USD":  "SOLUSD",
+  "ADA/USD":  "ADAUSD",
+  "DOT/USD":  "DOTUSD",
+  "XRP/USD":  "XRPUSD",
+  "LINK/USD": "LINKUSD",
+  "LTC/USD":  "LTCUSD",
+  "BCH/USD":  "BCHUSD",
+  "XLM/USD":  "XLMUSD",
+  "AVAX/USD": "AVAXUSD",
+  "ATOM/USD": "ATOMUSD",
+  "ALGO/USD": "ALGOUSD",
+  "NEAR/USD": "NEARUSD",
+  "TRX/USD":  "TRXUSD",
+  "UNI/USD":  "UNIUSD",
 };
 
 const DEFAULT_PAIRS = {
@@ -102,35 +110,55 @@ export function usePrices() {
 
   useWebSocket(handleMessage);
 
-  // Fetch real prices + 24h change from CoinGecko every 60s
+  // Fetch real prices + 24h change from Kraken every 60s
   useEffect(() => {
-    const fetchCg = async () => {
+    const fetchKraken = async () => {
       try {
-        const list = await api.getCoinGeckoMarkets();
-        const byId = {};
-        list.forEach((coin) => { byId[coin.id] = coin; });
+        const pairs = Object.values(KRAKEN_MAP).join(",");
+        const res = await fetch(
+          `https://api.kraken.com/0/public/Ticker?pair=${pairs}`
+        );
+        const json = await res.json();
+        if (json.error?.length) return;
+
         setPrices((prev) => {
           const next = { ...prev };
-          for (const [pair, cgId] of Object.entries(CG_PAIR_MAP)) {
-            const coin = byId[cgId];
-            if (!coin) continue;
-            const price = coin.current_price ?? prev[pair]?.price;
-            const change24h = coin.price_change_percentage_24h ?? 0;
+          for (const [pair, krakenPair] of Object.entries(KRAKEN_MAP)) {
+            // Kraken retourne parfois le pair avec un préfixe différent
+            const resultKeys = Object.keys(json.result);
+            const matchedKey = resultKeys.find((k) =>
+              k.includes(krakenPair.slice(0, 3)) ||
+              k === krakenPair ||
+              k === "X" + krakenPair ||
+              k === "XX" + krakenPair.slice(0, 3) + "Z" + krakenPair.slice(3)
+            );
+            const data = matchedKey ? json.result[matchedKey] : null;
+            if (!data) continue;
+
+            const price    = parseFloat(data.c[0]);  // dernier prix
+            const open     = parseFloat(data.o);      // prix ouverture 24h
+            const vol24h   = parseFloat(data.v[1]);   // volume 24h
+            const change24h = parseFloat(
+              (((price - open) / open) * 100).toFixed(2)
+            );
+
             next[pair] = {
               ...prev[pair],
               price,
               change24h,
+              vol24h,
               history: prev[pair]?.history || makeHistory(price),
             };
           }
           return next;
         });
-      } catch {
-        // CoinGecko unavailable — keep existing prices
+      } catch (e) {
+        console.warn("[Kraken ticker] erreur:", e);
       }
     };
-    fetchCg();
-    const id = setInterval(fetchCg, 60000);
+
+    fetchKraken();
+    const id = setInterval(fetchKraken, 60000);
     return () => clearInterval(id);
   }, []);
 
