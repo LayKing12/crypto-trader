@@ -12,7 +12,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 
 from app.config import get_settings
 from app.database import get_db, init_db, AsyncSessionLocal
@@ -236,6 +236,22 @@ async def _check_stop_losses(db: AsyncSession, symbol: str):
             log.info("stop_loss_triggered", symbol=symbol, price=price)
 
 
+async def _check_take_profits(db: AsyncSession, symbol: str):
+    """Ferme les trades dont le premier take-profit est atteint."""
+    open_trades = await paper_trading_engine.get_open_trades(db)
+    for trade in open_trades:
+        if trade.symbol != symbol:
+            continue
+        price = await market_data_service.get_price(symbol)
+        if price and await paper_trading_engine.check_take_profit(price, trade):
+            closed = await paper_trading_engine.close_paper_trade(db, trade.id, price)
+            whatsapp_service.notify_take_profit_hit(symbol, price, closed.pnl_pct)
+            whatsapp_service.notify_trade_closed(
+                symbol, closed.pnl_pct, closed.pnl_usd, closed.result
+            )
+            log.info("take_profit_triggered", symbol=symbol, price=price, pnl_pct=closed.pnl_pct)
+
+
 # ── Boucle automatique 24h/24 ──────────────────────────────────────────────
 
 async def auto_trading_loop():
@@ -287,6 +303,7 @@ async def auto_trading_loop():
                                 )
 
                         await _check_stop_losses(db, symbol)
+                        await _check_take_profits(db, symbol)
                         await asyncio.sleep(1)
 
                     except Exception as e:
@@ -526,6 +543,20 @@ async def list_trades(
     except Exception as e:
         log.error("list_trades_error", error=str(e))
         return []
+
+
+@app.delete("/api/trades/reset")
+async def reset_trades(db: Annotated[AsyncSession, Depends(get_db)]):
+    """Supprime tous les trades — repart à zéro pour un nouvel entraînement."""
+    try:
+        result = await db.execute(delete(Trade))
+        deleted = result.rowcount
+        await db.commit()
+        log.info("trades_reset", deleted=deleted)
+        return {"deleted": deleted, "message": f"{deleted} trades supprimés"}
+    except Exception as e:
+        log.error("trades_reset_error", error=str(e))
+        raise HTTPException(500, f"Erreur reset: {str(e)}")
 
 
 @app.get("/api/price/{symbol}")

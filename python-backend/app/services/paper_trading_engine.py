@@ -10,7 +10,6 @@ from sqlalchemy import select
 from app.models.trade import Trade
 from app.utils.logging_utils import get_logger
 from app.config import get_settings
-import app.services.whatsapp_service as wa
 
 log = get_logger(__name__)
 settings = get_settings()
@@ -75,14 +74,6 @@ async def open_paper_trade(
         take_profits=[f"+{p}%" for p, _ in TAKE_PROFIT_LEVELS],
     )
 
-    wa.notify_trade_opened(
-        symbol=symbol,
-        price=entry_price,
-        size_pct=position_size_pct,
-        stop_loss=stop_loss_price,
-        is_paper=True,
-    )
-
     return trade
 
 
@@ -107,13 +98,6 @@ async def close_paper_trade(
 
     log.info(
         "paper_trade_closed",
-        symbol=trade.symbol,
-        pnl_pct=pnl_pct,
-        pnl_usd=pnl_usd,
-        result=trade.result,
-    )
-
-    wa.notify_trade_closed(
         symbol=trade.symbol,
         pnl_pct=pnl_pct,
         pnl_usd=pnl_usd,
