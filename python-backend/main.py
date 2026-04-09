@@ -12,7 +12,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, delete
+from sqlalchemy import select, desc, delete, func
 
 from app.config import get_settings
 from app.database import get_db, init_db, AsyncSessionLocal
@@ -491,8 +491,13 @@ async def close_trade(
 async def get_performance(db: Annotated[AsyncSession, Depends(get_db)]):
     state = await performance_tracker.compute_current_state(db)
     snapshot = await performance_tracker.record_snapshot(db, state)
+    open_result = await db.execute(
+        select(func.count(Trade.id)).where(Trade.result == "open")
+    )
+    open_trades_count = int(open_result.scalar() or 0)
     return {
-        "total_trades": snapshot.total_trades,
+        "total_trades": snapshot.total_trades + open_trades_count,
+        "open_trades": open_trades_count,
         "win_rate": snapshot.win_rate,
         "total_pnl_usd": snapshot.total_pnl_usd,
         "total_pnl_pct": snapshot.total_pnl_pct,

@@ -95,6 +95,7 @@ async def close_paper_trade(
     trade.pnl_usd = pnl_usd
     trade.result = "win" if pnl_pct > 0 else "loss"
     trade.closed_at = datetime.now(timezone.utc)
+    await db.flush()  # make result change visible in same session
 
     log.info(
         "paper_trade_closed",
