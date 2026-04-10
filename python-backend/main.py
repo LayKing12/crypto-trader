@@ -27,6 +27,7 @@ from app.services import (
     performance_tracker,
     market_data_service,
     whatsapp_service,
+    strategy_engine,
 )
 from app.utils.logging_utils import configure_logging, get_logger, log_decision
 
@@ -152,15 +153,20 @@ async def _run_analysis(
         )
         execute_ok, claude_reason = claude_service.should_execute(technical_bias, claude_result)
 
-    # ── Décision finale — seuil abaissé à 50 ──
+    # ── Per-pair technical entry validation ──
+    pair_ok, pair_reason = strategy_engine.validate_pair_entry(sym, ind)
+
+    # ── Décision finale — seuil à 70 + filtre par paire ──
     if not assessment.trading_enabled:
         final_decision = "disabled"
     elif technical_bias == "neutral":
         final_decision = "skip_neutral"
     elif not execute_ok:
         final_decision = f"skip_{claude_reason}"
-    elif scores.market_score < 50:
+    elif scores.market_score < strategy_engine.MIN_MARKET_SCORE:
         final_decision = "skip_low_score"
+    elif not pair_ok:
+        final_decision = f"skip_{pair_reason}"
     else:
         final_decision = "execute"
 
@@ -275,31 +281,52 @@ async def auto_trading_loop():
 
                         if analysis["decision"] == "execute":
                             price      = analysis["price"]
-                            size_pct   = analysis["position_size_pct"]
                             confidence = analysis["scores"]["confidence_score"]
                             risk       = analysis["scores"]["risk_score"]
                             regime     = analysis["regime"]
 
+                            # ── Discipline + DB guards ──
+                            can_open, block_reason = await strategy_engine.can_open_trade(
+                                db, symbol, analysis["scores"]["market_score"]
+                            )
+                            if not can_open:
+                                log.info("trade_blocked", symbol=symbol, reason=block_reason)
+                                continue
+
+                            # ── Per-pair SL/TP + position sizing ──
+                            pair_cfg = strategy_engine.get_pair_config(symbol)
+                            sl_pct   = pair_cfg["sl_pct"]
+                            tp_pct   = pair_cfg["tp_pct"]
+                            size_pct = strategy_engine.apply_size_factor(
+                                symbol, analysis["position_size_pct"]
+                            )
+
                             if settings.paper_trading:
                                 trade = await paper_trading_engine.open_paper_trade(
-                                    db, symbol, price, size_pct, confidence, risk, regime
+                                    db, symbol, price, size_pct, confidence, risk, regime,
+                                    sl_pct=sl_pct, tp_pct=tp_pct,
                                 )
+                                strategy_engine.on_trade_opened(symbol)
                                 whatsapp_service.notify_trade_opened(
-                                    symbol, price, size_pct, trade.stop_loss_price, True
+                                    symbol, price, size_pct, trade.stop_loss_price, True,
+                                    tp_pct=tp_pct,
                                 )
-                                log.info("auto_paper_trade_opened", symbol=symbol, price=price, btc_regime=btc_regime)
+                                log.info("auto_paper_trade_opened", symbol=symbol, price=price, btc_regime=btc_regime, sl_pct=sl_pct, tp_pct=tp_pct)
                             else:
                                 order = await execution_service.execute_trade(
-                                    symbol, price, size_pct, analysis["stop_loss_pct"]
+                                    symbol, price, size_pct, sl_pct
                                 )
                                 actual_price = order["actual_price"]
                                 trade = await paper_trading_engine.open_paper_trade(
-                                    db, symbol, actual_price, size_pct, confidence, risk, regime
+                                    db, symbol, actual_price, size_pct, confidence, risk, regime,
+                                    sl_pct=sl_pct, tp_pct=tp_pct,
                                 )
                                 trade.is_paper = False
                                 await db.flush()
+                                strategy_engine.on_trade_opened(symbol)
                                 whatsapp_service.notify_trade_opened(
-                                    symbol, actual_price, size_pct, order["stop_loss_price"], False
+                                    symbol, actual_price, size_pct, order["stop_loss_price"], False,
+                                    tp_pct=tp_pct,
                                 )
 
                         await _check_stop_losses(db, symbol)

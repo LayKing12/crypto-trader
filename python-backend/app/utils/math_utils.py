@@ -79,3 +79,51 @@ def calc_volume_ratio(current_volume: float, volumes: list[float], period: int =
     if avg == 0:
         return 1.0
     return round(current_volume / avg, 3)
+
+
+def calc_macd(
+    closes: list[float],
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[float | None, float | None, float | None]:
+    """Returns (macd_line, signal_line, histogram) for the last candle."""
+    if len(closes) < slow + signal:
+        return None, None, None
+    arr = np.array(closes, dtype=float)
+    fast_ema = _ema_array(arr, fast)
+    slow_ema = _ema_array(arr, slow)
+    macd_line = fast_ema - slow_ema
+    signal_line = _ema_array(macd_line, signal)
+    histogram = macd_line - signal_line
+    return round(float(macd_line[-1]), 6), round(float(signal_line[-1]), 6), round(float(histogram[-1]), 6)
+
+
+def _ema_array(arr: np.ndarray, period: int) -> np.ndarray:
+    k = 2.0 / (period + 1)
+    result = np.empty_like(arr)
+    result[:period] = arr[:period].mean()
+    for i in range(period, len(arr)):
+        result[i] = arr[i] * k + result[i - 1] * (1 - k)
+    return result
+
+
+def calc_obv_trend(closes: list[float], volumes: list[float], period: int = 10) -> bool:
+    """Returns True if OBV is trending up over the last `period` bars."""
+    if len(closes) < period + 1 or len(volumes) < period + 1:
+        return False
+    obv = 0.0
+    obv_series = []
+    for i in range(1, len(closes)):
+        if closes[i] > closes[i - 1]:
+            obv += volumes[i]
+        elif closes[i] < closes[i - 1]:
+            obv -= volumes[i]
+        obv_series.append(obv)
+    if len(obv_series) < period:
+        return False
+    recent = obv_series[-period:]
+    # OBV is rising if linear regression slope is positive
+    x = np.arange(len(recent), dtype=float)
+    slope = np.polyfit(x, recent, 1)[0]
+    return slope > 0
