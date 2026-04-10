@@ -105,9 +105,42 @@ def _get_ticker_cached(key: str) -> dict | None:
 # ── API publique ─────────────────────────────────────────────────────────────
 
 async def get_price(symbol: str) -> float | None:
-    """Retourne le dernier prix depuis le cache mémoire."""
+    """
+    Retourne le dernier prix.
+    1. Cache WS (< 60s) — chemin rapide
+    2. REST Kraken Ticker — fallback si cache stale ou None
+    """
     key = _normalize_key(symbol)
-    return _get_price_cached(key)
+    cached = _get_price_cached(key)
+    if cached:
+        return cached
+    price = await _fetch_price_rest(key)
+    if price:
+        _set_price(key, price)
+        log.info("price_rest_fallback", symbol=key, price=price)
+    else:
+        log.warning("price_unavailable", symbol=key)
+    return price
+
+
+async def _fetch_price_rest(key: str) -> float | None:
+    """Fetches current price from Kraken REST Ticker endpoint."""
+    ohlc_pair = _REDIS_TO_OHLC_PAIR.get(key)
+    if not ohlc_pair:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{KRAKEN_REST_URL}/Ticker", params={"pair": ohlc_pair})
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("error"):
+                return None
+            result = data.get("result", {})
+            for pair_data in result.values():
+                return float(pair_data["c"][0])
+    except Exception as e:
+        log.error("price_rest_error", key=key, error=str(e))
+    return None
 
 
 async def get_full_ticker(symbol: str) -> dict | None:

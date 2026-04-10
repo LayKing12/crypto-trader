@@ -46,6 +46,7 @@ WATCHED_PAIRS = [
 
 # ── État global du bot ─────────────────────────────────────────────────────
 _bot_task: asyncio.Task | None = None
+_monitor_task: asyncio.Task | None = None
 _bot_running: bool = False
 
 
@@ -225,7 +226,83 @@ async def _run_analysis(
     }
 
 
-# ── Stop-loss checker ──────────────────────────────────────────────────────
+# ── Trade monitor — dedicated 30s loop, independent of analysis cycle ──────
+
+MONITOR_INTERVAL = 30  # seconds
+
+
+async def _close_trade_and_notify(db: AsyncSession, trade, price: float, reason: str):
+    closed = await paper_trading_engine.close_paper_trade(db, trade.id, price)
+    if reason == "sl":
+        whatsapp_service.notify_stop_loss_hit(trade.symbol, price)
+    else:
+        whatsapp_service.notify_take_profit_hit(trade.symbol, price, closed.pnl_pct)
+    whatsapp_service.notify_trade_closed(trade.symbol, closed.pnl_pct, closed.pnl_usd, closed.result)
+    await db.commit()
+    print(f"[MONITOR] {reason.upper()} CLOSED {trade.symbol} "
+          f"entry={trade.entry_price} exit={price} pnl={closed.pnl_pct:+.2f}%")
+    log.info(f"{reason}_triggered", symbol=trade.symbol, price=price, pnl_pct=closed.pnl_pct)
+
+
+async def _monitor_open_trades():
+    """
+    Checks ALL open trades every 30s.
+    Independent from the 5-min analysis cycle — catches TP/SL between cycles.
+    """
+    global _bot_running
+    await asyncio.sleep(15)  # stagger vs analysis loop
+    log.info("monitor_loop_started", interval_s=MONITOR_INTERVAL)
+
+    while _bot_running:
+        try:
+            async with AsyncSessionLocal() as db:
+                open_trades = await paper_trading_engine.get_open_trades(db)
+                if not open_trades:
+                    print("[MONITOR] No open trades.")
+                else:
+                    print(f"[MONITOR] Checking {len(open_trades)} open trade(s)...")
+
+                for trade in open_trades:
+                    try:
+                        price = await market_data_service.get_price(trade.symbol)
+                        if price is None:
+                            print(f"[MONITOR] WARN: price=None for {trade.symbol} — skipping")
+                            continue
+
+                        tp_structure = trade.take_profit_structure or {}
+                        first_tp = min(
+                            (lvl["target_price"] for lvl in tp_structure.values()),
+                            default=None,
+                        )
+                        print(
+                            f"[MONITOR] {trade.symbol} | "
+                            f"entry={trade.entry_price:.4f} | "
+                            f"current={price:.4f} | "
+                            f"sl={trade.stop_loss_price:.4f} | "
+                            f"tp1={first_tp:.4f if first_tp else 'N/A'}"
+                        )
+
+                        if await paper_trading_engine.check_stop_loss(price, trade):
+                            print(f"[MONITOR] → SL HIT {trade.symbol} ({price:.4f} <= {trade.stop_loss_price:.4f})")
+                            await _close_trade_and_notify(db, trade, price, "sl")
+                            continue
+
+                        if await paper_trading_engine.check_take_profit(price, trade):
+                            print(f"[MONITOR] → TP HIT {trade.symbol} ({price:.4f} >= {first_tp:.4f})")
+                            await _close_trade_and_notify(db, trade, price, "tp")
+
+                    except Exception as e:
+                        print(f"[MONITOR] ERROR on {trade.symbol}: {e}")
+                        log.error("monitor_trade_error", symbol=trade.symbol, error=str(e))
+
+        except Exception as e:
+            log.error("monitor_loop_error", error=str(e))
+            print(f"[MONITOR] LOOP ERROR: {e}")
+
+        await asyncio.sleep(MONITOR_INTERVAL)
+
+
+# ── Stop-loss / TP helpers (secondary check inside analysis loop) ───────────
 
 async def _check_stop_losses(db: AsyncSession, symbol: str):
     open_trades = await paper_trading_engine.get_open_trades(db)
@@ -233,28 +310,38 @@ async def _check_stop_losses(db: AsyncSession, symbol: str):
         if trade.symbol != symbol:
             continue
         price = await market_data_service.get_price(symbol)
-        if price and await paper_trading_engine.check_stop_loss(price, trade):
+        print(f"[CHECK SL] {trade.symbol} entry={trade.entry_price} current={price} sl={trade.stop_loss_price}")
+        if price is None:
+            print(f"[CHECK SL] WARN: price=None for {symbol}")
+            continue
+        if await paper_trading_engine.check_stop_loss(price, trade):
+            print(f"[CHECK SL] → TRIGGERED {symbol} ({price} <= {trade.stop_loss_price})")
             closed = await paper_trading_engine.close_paper_trade(db, trade.id, price)
             whatsapp_service.notify_stop_loss_hit(symbol, price)
-            whatsapp_service.notify_trade_closed(
-                symbol, closed.pnl_pct, closed.pnl_usd, closed.result
-            )
+            whatsapp_service.notify_trade_closed(symbol, closed.pnl_pct, closed.pnl_usd, closed.result)
             log.info("stop_loss_triggered", symbol=symbol, price=price)
 
 
 async def _check_take_profits(db: AsyncSession, symbol: str):
-    """Ferme les trades dont le premier take-profit est atteint."""
     open_trades = await paper_trading_engine.get_open_trades(db)
     for trade in open_trades:
         if trade.symbol != symbol:
             continue
         price = await market_data_service.get_price(symbol)
-        if price and await paper_trading_engine.check_take_profit(price, trade):
+        tp_structure = trade.take_profit_structure or {}
+        first_tp = min(
+            (lvl["target_price"] for lvl in tp_structure.values()),
+            default=None,
+        )
+        print(f"[CHECK TP] {trade.symbol} entry={trade.entry_price} current={price} tp1={first_tp}")
+        if price is None:
+            print(f"[CHECK TP] WARN: price=None for {symbol}")
+            continue
+        if await paper_trading_engine.check_take_profit(price, trade):
+            print(f"[CHECK TP] → TRIGGERED {symbol} ({price} >= {first_tp})")
             closed = await paper_trading_engine.close_paper_trade(db, trade.id, price)
             whatsapp_service.notify_take_profit_hit(symbol, price, closed.pnl_pct)
-            whatsapp_service.notify_trade_closed(
-                symbol, closed.pnl_pct, closed.pnl_usd, closed.result
-            )
+            whatsapp_service.notify_trade_closed(symbol, closed.pnl_pct, closed.pnl_usd, closed.result)
             log.info("take_profit_triggered", symbol=symbol, price=price, pnl_pct=closed.pnl_pct)
 
 
@@ -351,16 +438,19 @@ async def auto_trading_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _bot_task, _bot_running
+    global _bot_task, _monitor_task, _bot_running
     await init_db()
     await market_data_service.start_ws_listener()
     _bot_running = True
     _bot_task = asyncio.create_task(auto_trading_loop())
+    _monitor_task = asyncio.create_task(_monitor_open_trades())
     log.info("cryptomind_started", paper_trading=settings.paper_trading)
     yield
     _bot_running = False
     if _bot_task:
         _bot_task.cancel()
+    if _monitor_task:
+        _monitor_task.cancel()
     await execution_service.close_exchange()
     log.info("cryptomind_stopped")
 
