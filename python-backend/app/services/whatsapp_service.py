@@ -48,7 +48,14 @@ def send_message(body: str, urgent: bool = False) -> bool:
         return False
 
 
-def notify_trade_opened(symbol: str, price: float, size_pct: float, stop_loss: float, is_paper: bool) -> bool:
+def notify_trade_opened(
+    symbol: str,
+    price: float,
+    size_pct: float,
+    stop_loss: float,
+    is_paper: bool,
+    tp_pct: float | None = None,
+) -> bool:
     # Throttle : skip si ce symbole a déjà été notifié récemment
     now = time.time()
     last = _last_open_notif.get(symbol, 0)
@@ -59,12 +66,13 @@ def notify_trade_opened(symbol: str, price: float, size_pct: float, stop_loss: f
 
     mode = "[PAPER]" if is_paper else "[LIVE]"
     sl_pct = round((stop_loss - price) / price * 100, 1)
+    tp_str = f"+{tp_pct}%/+{round(tp_pct * 2, 1)}%" if tp_pct else "+3%/+6%"
     body = (
         f"🚀 {mode} ACHAT {symbol}\n"
         f"Prix: ${price:,.2f}\n"
         f"Taille: {size_pct:.1f}% du capital\n"
         f"Stop-loss: ${stop_loss:,.2f} ({sl_pct:+.1f}%)\n"
-        f"TP: +3%/+5%/+8%/+15%"
+        f"TP: {tp_str}"
     )
     return send_message(body)
 
