@@ -11,7 +11,7 @@ if not DATABASE_URL:
 engine = create_async_engine(
     DATABASE_URL,
     poolclass=NullPool,
-    echo=False,
+    connect_args={"statement_cache_size": 0},
 )
 
 print("[DB] Connexion vers Supabase aws-1-eu-north-1...")
