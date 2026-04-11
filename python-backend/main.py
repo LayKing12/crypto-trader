@@ -28,6 +28,7 @@ from app.services import (
     market_data_service,
     whatsapp_service,
     strategy_engine,
+    smc_engine,
 )
 from app.utils.logging_utils import configure_logging, get_logger, log_decision
 
@@ -157,19 +158,50 @@ async def _run_analysis(
     # ── Per-pair technical entry validation ──
     pair_ok, pair_reason = strategy_engine.validate_pair_entry(sym, ind)
 
-    # ── Décision finale — seuil à 70 + filtre par paire ──
+    # ── Décision finale — seuil + filtre par paire ──
     if not assessment.trading_enabled:
         final_decision = "disabled"
     elif technical_bias == "neutral":
         final_decision = "skip_neutral"
     elif not execute_ok:
         final_decision = f"skip_{claude_reason}"
-    elif scores.market_score < strategy_engine.MIN_MARKET_SCORE:
+    elif scores.market_score < smc_engine.MARKET_MIN_SCORE:
         final_decision = "skip_low_score"
     elif not pair_ok:
         final_decision = f"skip_{pair_reason}"
     else:
         final_decision = "execute"
+
+    # ── SMC Ultra gate (only when trade would otherwise execute) ──────
+    smc_analysis = None
+    if final_decision == "execute":
+        tf_data = await asyncio.gather(
+            market_data_service.get_klines(sym, "1m", 100),
+            market_data_service.get_klines(sym, "5m", 100),
+            market_data_service.get_klines(sym, "1h", 100),
+            market_data_service.get_klines(sym, "4h", 100),
+        )
+        candles_by_tf = {
+            "1m": tf_data[0], "5m": tf_data[1],
+            "15m": candles,
+            "1h": tf_data[2], "4h": tf_data[3],
+        }
+        smc_analysis = smc_engine.analyze(sym, candles_by_tf)
+        log.info(
+            "smc_analyzed",
+            symbol=sym,
+            smc_score=smc_analysis.smc_score,
+            mtf=smc_analysis.mtf_score,
+            bias=smc_analysis.bias,
+            reason=smc_analysis.reason,
+        )
+
+        if smc_analysis.cooldown_blocked:
+            final_decision = "skip_smc_cooldown"
+        elif smc_analysis.asian_range_blocked:
+            final_decision = "skip_asian_range"
+        elif smc_analysis.smc_score < smc_engine.SMC_MIN_SCORE:
+            final_decision = f"skip_smc_{smc_analysis.smc_score:.0f}"
 
     snapshot = MarketSnapshot(
         symbol=sym, price=ind.price, rsi=ind.rsi,
@@ -223,6 +255,15 @@ async def _run_analysis(
         "stop_loss_pct": assessment.stop_loss_pct,
         "claude_analysis": claude_result,
         "trading_enabled": assessment.trading_enabled,
+        # SMC Ultra fields (present only when SMC analysis ran)
+        "smc_score": smc_analysis.smc_score if smc_analysis else None,
+        "smc_mtf": smc_analysis.mtf_score if smc_analysis else None,
+        "smc_bias": smc_analysis.bias if smc_analysis else None,
+        "smc_reason": smc_analysis.reason if smc_analysis else None,
+        "smc_sl_price": smc_analysis.sl_price if smc_analysis else None,
+        "smc_tp_price": smc_analysis.tp_price if smc_analysis else None,
+        "smc_ob_high": smc_analysis.active_ob.high if (smc_analysis and smc_analysis.active_ob) else None,
+        "smc_ob_low": smc_analysis.active_ob.low if (smc_analysis and smc_analysis.active_ob) else None,
     }
 
 
@@ -382,11 +423,31 @@ async def auto_trading_loop():
 
                             # ── Per-pair SL/TP + position sizing ──
                             pair_cfg = strategy_engine.get_pair_config(symbol)
-                            sl_pct   = pair_cfg["sl_pct"]
-                            tp_pct   = pair_cfg["tp_pct"]
                             size_pct = strategy_engine.apply_size_factor(
                                 symbol, analysis["position_size_pct"]
                             )
+
+                            # Prefer SMC-derived SL/TP (OB-anchored) over static config
+                            smc_sl = analysis.get("smc_sl_price")
+                            smc_tp = analysis.get("smc_tp_price")
+                            if smc_sl and smc_tp and price > 0:
+                                sl_pct = round((price - smc_sl) / price * 100, 4)
+                                tp_pct = round((smc_tp - price) / price * 100, 4)
+                                if sl_pct <= 0 or tp_pct <= 0:
+                                    sl_pct = pair_cfg["sl_pct"]
+                                    tp_pct = pair_cfg["tp_pct"]
+                            else:
+                                sl_pct = pair_cfg["sl_pct"]
+                                tp_pct = pair_cfg["tp_pct"]
+
+                            # OB details for WhatsApp
+                            ob_info: str | None = None
+                            if analysis.get("smc_ob_high") and analysis.get("smc_ob_low"):
+                                ob_info = (
+                                    f"OB ${analysis['smc_ob_low']:,.4f}–${analysis['smc_ob_high']:,.4f} "
+                                    f"| SMC {analysis.get('smc_score', 0):.0f}/100 "
+                                    f"| MTF {analysis.get('smc_mtf', 0)}/5"
+                                )
 
                             if settings.paper_trading:
                                 trade = await paper_trading_engine.open_paper_trade(
@@ -394,11 +455,17 @@ async def auto_trading_loop():
                                     sl_pct=sl_pct, tp_pct=tp_pct,
                                 )
                                 strategy_engine.on_trade_opened(symbol)
+                                smc_engine.record_signal(symbol)
                                 whatsapp_service.notify_trade_opened(
                                     symbol, price, size_pct, trade.stop_loss_price, True,
-                                    tp_pct=tp_pct,
+                                    tp_pct=tp_pct, ob_info=ob_info,
                                 )
-                                log.info("auto_paper_trade_opened", symbol=symbol, price=price, btc_regime=btc_regime, sl_pct=sl_pct, tp_pct=tp_pct)
+                                log.info(
+                                    "auto_paper_trade_opened",
+                                    symbol=symbol, price=price, btc_regime=btc_regime,
+                                    sl_pct=sl_pct, tp_pct=tp_pct,
+                                    smc_score=analysis.get("smc_score"),
+                                )
                             else:
                                 order = await execution_service.execute_trade(
                                     symbol, price, size_pct, sl_pct
@@ -411,9 +478,10 @@ async def auto_trading_loop():
                                 trade.is_paper = False
                                 await db.flush()
                                 strategy_engine.on_trade_opened(symbol)
+                                smc_engine.record_signal(symbol)
                                 whatsapp_service.notify_trade_opened(
                                     symbol, actual_price, size_pct, order["stop_loss_price"], False,
-                                    tp_pct=tp_pct,
+                                    tp_pct=tp_pct, ob_info=ob_info,
                                 )
 
                         await _check_stop_losses(db, symbol)

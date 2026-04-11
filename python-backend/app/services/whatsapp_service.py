@@ -55,6 +55,7 @@ def notify_trade_opened(
     stop_loss: float,
     is_paper: bool,
     tp_pct: float | None = None,
+    ob_info: str | None = None,
 ) -> bool:
     # Throttle : skip si ce symbole a déjà été notifié récemment
     now = time.time()
@@ -74,6 +75,8 @@ def notify_trade_opened(
         f"Stop-loss: ${stop_loss:,.2f} ({sl_pct:+.1f}%)\n"
         f"TP: {tp_str}"
     )
+    if ob_info:
+        body += f"\n📦 {ob_info}"
     return send_message(body)
 
 
