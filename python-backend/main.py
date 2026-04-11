@@ -320,7 +320,7 @@ async def _monitor_open_trades():
                             f"entry={trade.entry_price:.4f} | "
                             f"current={price:.4f} | "
                             f"sl={trade.stop_loss_price:.4f} | "
-                            f"tp1={first_tp:.4f if first_tp else 'N/A'}"
+                            f"tp1={f'{first_tp:.4f}' if first_tp else 'N/A'}"
                         )
 
                         if await paper_trading_engine.check_stop_loss(price, trade):
