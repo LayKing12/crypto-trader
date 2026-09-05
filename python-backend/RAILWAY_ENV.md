@@ -96,3 +96,23 @@ curl https://ton-projet.railway.app/health
 curl https://ton-projet.railway.app/api/onchain
 # Doit retourner le whale score BTC/ETH
 ```
+
+## eToro — Agent Portfolio actions + or (module `etoro/`)
+
+Module inactif tant que `ETORO_API_KEY` est vide. Détails : `docs/etoro/railway_setup.md`,
+checklist démo → réel : `docs/etoro/checklist_demo_vers_reel.md`.
+
+| Variable | Exemple | Description |
+|----------|---------|-------------|
+| `ETORO_API_KEY` | | Public API Key (Settings > Trading > API Key Management) |
+| `ETORO_USER_KEY` | | User Key liée à l'environnement Demo ou Real |
+| `ETORO_TRADING_MODE` | `demo` | `demo` ou `real` — chemins `/demo/...` vs `/trading/execution/...` |
+| `ETORO_CREDENTIALS_ROTATED` | `false` | Doit être `true` pour trader en `real` (étape bloquante) |
+| `ETORO_KILL_SWITCH_TOKEN` | | Token du header `X-Kill-Token` pour `POST /etoro/kill` |
+| `ETORO_UNIVERSE` | `AAPL,MSFT,NVDA,AMZN,GOOGL,SPY,XAUUSD` | Univers restreint |
+| `ETORO_MAX_OPEN_POSITIONS` | `3` | 1..5 positions simultanées |
+| `ETORO_COOLDOWN_HOURS` | `4` | Délai entre deux trades sur le même instrument |
+| `ETORO_DAILY_LOSS_LIMIT_PCT` | `3.0` | Circuit breaker : pause 24 h au-delà |
+| `ETORO_MIN_SCORE` | `70` | Seuil `market_score` (indicator_engine) |
+| `ETORO_STATE_PATH` | `/data/etoro_state.json` | Volume Railway monté sur `/data` |
+| `ETORO_DECISIONS_PATH` | `/data/etoro_decisions.jsonl` | Journal des décisions (onglet eToro) |

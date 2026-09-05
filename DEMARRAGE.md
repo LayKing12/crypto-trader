@@ -160,3 +160,20 @@ Kraken API
 | Prix affichés mais pas mis à jour | WebSocket Kraken déconnecté, attendre reconnexion |
 | WhatsApp non reçu | Vérifiez que vous avez rejoint le sandbox Twilio |
 | Ordre refusé | Vérifiez le volume minimum et le solde disponible |
+
+---
+
+## Module eToro — actions + or (Agent Portfolio)
+
+Second moteur, à côté du bot Kraken, dans `python-backend/etoro/`. Il applique les mêmes garde-fous
+que le fix d'avril (max 3 positions, 1 par instrument, cooldown 4 h, SL/TP obligatoires, circuit
+breaker à −3 % du jour, `market_score >= 70`) sur un univers restreint : AAPL, MSFT, NVDA, AMZN,
+GOOGL, SPY et l'or (XAU/USD).
+
+- **Inactif tant que `ETORO_API_KEY` est vide** : CryptoMind démarre comme avant.
+- Clés : etoro.com → Settings → Trading → API Key Management, environnement **Demo** d'abord.
+- Variables : voir `python-backend/.env.example` et `python-backend/RAILWAY_ENV.md`.
+- Onglet **eToro** dans l'app mobile : état de l'agent, positions, décisions en direct, kill switch.
+- Endpoints : `GET /etoro/status`, `/etoro/positions`, `/etoro/decisions`, `POST /etoro/kill` (header `X-Kill-Token`).
+- Test de lecture seule du compte démo : `cd python-backend && python etoro_smoke_demo.py`.
+- Passage en argent réel : `docs/etoro/checklist_demo_vers_reel.md` (étape bloquante : rotation des identifiants).

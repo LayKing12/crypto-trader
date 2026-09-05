@@ -3,6 +3,7 @@ import { THEME } from "../theme";
 const TABS = [
   { id: "portfolio", label: "Portfolio", icon: "💼" },
   { id: "trade",     label: "Trade",     icon: "⚡" },
+  { id: "etoro",     label: "eToro",     icon: "🥇" },
   { id: "market",    label: "Marché",    icon: "📊" },
   { id: "alerts",    label: "Alertes",   icon: "🔔" },
   { id: "learn",     label: "Apprendre", icon: "📚" },
@@ -51,8 +52,8 @@ export default function BottomNav({ active, onChange }) {
               <span style={{ fontSize: "18px", lineHeight: 1 }}>{tab.icon}</span>
             </div>
             <span style={{
-              fontSize: "9px", letterSpacing: "0.5px",
-              textTransform: "uppercase",
+              fontSize: "8px", letterSpacing: "0.3px",
+              textTransform: "uppercase", whiteSpace: "nowrap",
               color: isActive ? THEME.purple : THEME.muted,
               fontWeight: isActive ? "700" : "400",
               transition: "color 0.2s",

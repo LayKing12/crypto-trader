@@ -31,6 +31,8 @@ from app.services import (
     smc_engine,
 )
 from app.utils.logging_utils import configure_logging, get_logger, log_decision
+from app.services import etoro_runtime
+from etoro.api import router as etoro_router
 
 configure_logging()
 log = get_logger("main")
@@ -512,9 +514,11 @@ async def lifespan(app: FastAPI):
     _bot_running = True
     _bot_task = asyncio.create_task(auto_trading_loop())
     _monitor_task = asyncio.create_task(_monitor_open_trades())
-    log.info("cryptomind_started", paper_trading=settings.paper_trading)
+    await etoro_runtime.start()   # Agent Portfolio eToro (inactif sans ETORO_API_KEY)
+    log.info("cryptomind_started", paper_trading=settings.paper_trading, etoro=etoro_runtime.is_running())
     yield
     _bot_running = False
+    await etoro_runtime.stop()
     if _bot_task:
         _bot_task.cancel()
     if _monitor_task:
@@ -533,6 +537,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Module eToro : /etoro/kill, /etoro/resume, /etoro/status, /etoro/positions, /etoro/decisions, /etoro/health
+app.include_router(etoro_router)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
