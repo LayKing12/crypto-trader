@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { THEME } from "../theme";
 
-const BOT_API = "https://crypto-trader-production-8ef4.up.railway.app";
+const BOT_API = "https://cryptomind-etoro.onrender.com";
 
 const POLL_MS           = 5000;   // status + décisions
 const POSITIONS_POLL_MS = 30000;  // positions ouvertes
