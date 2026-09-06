@@ -129,3 +129,16 @@ Observation seulement : aucun ordre, aucun lien avec `risk_guard`. Détails : `w
 | `WATCH_NEWS_INTERVAL_S` | `900` | Cadence du watcher de news |
 | `CRYPTOPANIC_TOKEN` | | Optionnel (news crypto) |
 | `WATCH_LOG_PATH` | `/data/observations.jsonl` | Journal des observations |
+
+## Telegram (module `notifications/`)
+
+Deux chats : veille (alertes avec boutons Exécuté / Ignoré / Reporté) et trading (ouvertures, fermetures, breaker, kill switch). Seuls ces `chat_id` peuvent interagir avec le bot. Détails : `notifications/README.md`.
+
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_ENABLED` | `true` pour activer |
+| `TELEGRAM_BOT_TOKEN` | jeton du bot (@BotFather) |
+| `TELEGRAM_CHAT_ID_WATCH` | chat des alertes de veille |
+| `TELEGRAM_CHAT_ID_TRADING` | chat des événements de trading |
+| `TELEGRAM_WEBHOOK_SECRET` | secret long, vérifié sur chaque webhook |
+| `TELEGRAM_PUBLIC_URL` | URL publique du backend, enregistre le webhook au démarrage |

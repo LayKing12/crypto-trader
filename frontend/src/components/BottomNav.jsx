@@ -4,6 +4,7 @@ const TABS = [
   { id: "portfolio", label: "Portfolio", icon: "💼" },
   { id: "trade",     label: "Trade",     icon: "⚡" },
   { id: "etoro",     label: "eToro",     icon: "🥇" },
+  { id: "veille",    label: "Veille",    icon: "👁️" },
   { id: "market",    label: "Marché",    icon: "📊" },
   { id: "alerts",    label: "Alertes",   icon: "🔔" },
   { id: "learn",     label: "Apprendre", icon: "📚" },
@@ -29,7 +30,7 @@ export default function BottomNav({ active, onChange }) {
               background: "transparent", cursor: "pointer",
               display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
-              gap: "3px", position: "relative",
+              gap: "3px", position: "relative", padding: "0 2px", minWidth: 0,
               transition: "all 0.2s", fontFamily: "inherit",
             }}
           >
@@ -42,14 +43,14 @@ export default function BottomNav({ active, onChange }) {
               }} />
             )}
             <div style={{
-              width: "38px", height: "38px", borderRadius: "12px",
+              width: "34px", height: "34px", borderRadius: "11px",
               display: "flex", alignItems: "center", justifyContent: "center",
               background: isActive ? "rgba(139,92,246,0.15)" : "transparent",
               border: isActive ? "1px solid rgba(139,92,246,0.35)" : "1px solid transparent",
               transition: "all 0.2s",
               boxShadow: isActive ? "0 0 16px rgba(139,92,246,0.25)" : "none",
             }}>
-              <span style={{ fontSize: "18px", lineHeight: 1 }}>{tab.icon}</span>
+              <span style={{ fontSize: "16px", lineHeight: 1 }}>{tab.icon}</span>
             </div>
             <span style={{
               fontSize: "8px", letterSpacing: "0.3px",

@@ -37,6 +37,15 @@ class WatchSettings(BaseSettings):
     cryptopanic_token: str | None = Field(default=None, alias="CRYPTOPANIC_TOKEN")
     watch_log_path: str | None = Field(default="/data/observations.jsonl", alias="WATCH_LOG_PATH")
     watch_max_memory: int = Field(default=1000, ge=1, alias="WATCH_MAX_MEMORY")
+    # Règles / alertes (PR 4). WATCH_DATABASE_URL vide = `app.database.engine` (import tardif).
+    watch_database_url: str | None = Field(default=None, alias="WATCH_DATABASE_URL")
+    watch_rules_interval_s: float = Field(default=300.0, ge=1, alias="WATCH_RULES_INTERVAL_S")
+    watch_fng_enabled: bool = Field(default=True, alias="WATCH_FNG_ENABLED")
+
+    @field_validator("watch_database_url")
+    @classmethod
+    def _empty_url_is_none(cls, v: str | None) -> str | None:
+        return v.strip() if v and v.strip() else None
 
     @field_validator("watch_kraken_pairs", "watch_etoro_symbols")
     @classmethod
