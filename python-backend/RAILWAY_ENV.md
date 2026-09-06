@@ -116,3 +116,16 @@ checklist démo → réel : `docs/etoro/checklist_demo_vers_reel.md`.
 | `ETORO_MIN_SCORE` | `70` | Seuil `market_score` (indicator_engine) |
 | `ETORO_STATE_PATH` | `/data/etoro_state.json` | Volume Railway monté sur `/data` |
 | `ETORO_DECISIONS_PATH` | `/data/etoro_decisions.jsonl` | Journal des décisions (onglet eToro) |
+
+## Veille prix + news (module `watch/`)
+
+Observation seulement : aucun ordre, aucun lien avec `risk_guard`. Détails : `watch/README.md`.
+
+| Variable | Exemple | Description |
+|----------|---------|-------------|
+| `WATCH_ENABLED` | `false` | Active les watchers prix et news |
+| `WATCH_INTERVAL_S` | `300` | Cadence du watcher de prix |
+| `WATCH_MOVE_THRESHOLD_PCT` | `2.0` | Variation minimale journalisée |
+| `WATCH_NEWS_INTERVAL_S` | `900` | Cadence du watcher de news |
+| `CRYPTOPANIC_TOKEN` | | Optionnel (news crypto) |
+| `WATCH_LOG_PATH` | `/data/observations.jsonl` | Journal des observations |

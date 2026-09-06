@@ -33,6 +33,8 @@ from app.services import (
 from app.utils.logging_utils import configure_logging, get_logger, log_decision
 from app.services import etoro_runtime
 from etoro.api import router as etoro_router
+from watch import runtime as watch_runtime
+from watch.api import router as watch_router
 
 configure_logging()
 log = get_logger("main")
@@ -515,9 +517,11 @@ async def lifespan(app: FastAPI):
     _bot_task = asyncio.create_task(auto_trading_loop())
     _monitor_task = asyncio.create_task(_monitor_open_trades())
     await etoro_runtime.start()   # Agent Portfolio eToro (inactif sans ETORO_API_KEY)
+    await watch_runtime.start()   # Veille prix + news (inactive sans WATCH_ENABLED=true)
     log.info("cryptomind_started", paper_trading=settings.paper_trading, etoro=etoro_runtime.is_running())
     yield
     _bot_running = False
+    await watch_runtime.stop()
     await etoro_runtime.stop()
     if _bot_task:
         _bot_task.cancel()
@@ -540,6 +544,8 @@ app.add_middleware(
 
 # Module eToro : /etoro/kill, /etoro/resume, /etoro/status, /etoro/positions, /etoro/decisions, /etoro/health
 app.include_router(etoro_router)
+# Veille : /watch/observations, /watch/status (lecture seule, aucun déclenchement)
+app.include_router(watch_router)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
