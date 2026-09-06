@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { THEME } from "../theme";
 
-const BOT_API = "https://crypto-trader-production-8ef4.up.railway.app";
+const BOT_API = "https://cryptomind-etoro.onrender.com";
 
 const ALERTS_POLL_MS = 30000;   // file d'alertes
 const SLOW_POLL_MS   = 300000;  // règles, historique, allocation, sentiment
