@@ -4,6 +4,7 @@ import { usePrices } from "./hooks/usePrices";
 import BottomNav from "./components/BottomNav";
 import Portfolio from "./tabs/Portfolio";
 import Trade from "./tabs/Trade";
+import Etoro from "./tabs/Etoro";
 import Market from "./tabs/Market";
 import Alertes from "./tabs/Alertes";
 import Apprendre from "./tabs/Apprendre";
@@ -112,6 +113,7 @@ export default function App() {
       }}>
         {tab === "portfolio" && <Portfolio prices={prices} />}
         {tab === "trade"     && <Trade prices={prices} />}
+        {tab === "etoro"     && <Etoro />}
         {tab === "market"    && <Market prices={prices} />}
         {tab === "alerts"    && <Alertes prices={prices} />}
         {tab === "learn"     && <Apprendre />}
