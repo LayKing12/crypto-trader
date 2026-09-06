@@ -35,6 +35,9 @@ from app.services import etoro_runtime
 from etoro.api import router as etoro_router
 from watch import runtime as watch_runtime
 from watch.api import router as watch_router
+from notifications.api import router as telegram_router
+from notifications.config import get_telegram_settings
+from notifications.telegram_service import get_service as get_telegram_service
 
 configure_logging()
 log = get_logger("main")
@@ -518,6 +521,9 @@ async def lifespan(app: FastAPI):
     _monitor_task = asyncio.create_task(_monitor_open_trades())
     await etoro_runtime.start()   # Agent Portfolio eToro (inactif sans ETORO_API_KEY)
     await watch_runtime.start()   # Veille prix + news (inactive sans WATCH_ENABLED=true)
+    _tg = get_telegram_settings()
+    if _tg.configured and _tg.telegram_public_url:
+        await get_telegram_service().setup_webhook(_tg.telegram_public_url)
     log.info("cryptomind_started", paper_trading=settings.paper_trading, etoro=etoro_runtime.is_running())
     yield
     _bot_running = False
@@ -546,6 +552,8 @@ app.add_middleware(
 app.include_router(etoro_router)
 # Veille : /watch/observations, /watch/status (lecture seule, aucun déclenchement)
 app.include_router(watch_router)
+# Telegram : POST /telegram/webhook (boutons des alertes de veille), restreint aux chat_id configurés
+app.include_router(telegram_router)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────

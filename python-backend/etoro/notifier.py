@@ -59,9 +59,25 @@ class Notifier:
         return len(self._sent) >= MAX_SMS_PER_HOUR
 
     # ------------------------------------------------------------------ envoi
+    async def _relay_telegram(self, body: str) -> None:
+        """Relais optionnel vers Telegram (chat trading). No-op si non configuré, ne lève jamais."""
+        relay = getattr(self, "telegram_relay", None)
+        try:
+            if relay is None:
+                from notifications.telegram_service import get_service  # import tardif
+
+                svc = get_service()
+                if not svc.configured:
+                    return
+                relay = svc.send_trading_event
+            await relay(body)
+        except Exception:  # noqa: BLE001
+            log.warning("Relais Telegram en échec (ignoré)", exc_info=True)
+
     async def send_text(self, msg: str, *, priority: bool = False) -> bool:
-        """Envoie un SMS brut (préfixé DEMO/REAL). Retourne True si envoyé, False sinon."""
+        """Envoie un SMS brut (préfixé DEMO/REAL) et relaie vers Telegram. Retourne True si le SMS est parti."""
         body = f"{self.prefix} {msg}".strip()
+        await self._relay_telegram(body)
         if len(body) > _MAX_SMS_LEN:
             body = body[: _MAX_SMS_LEN - 1] + "…"
         if not self.enabled:
