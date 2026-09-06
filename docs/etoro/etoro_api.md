@@ -167,3 +167,21 @@ portfolio juste avant la demande. Le PnL exact est à lire via
 5. `ENDPOINTS["agent_portfolios"]` : création/token, filtre `mirrorID`, `ETORO_PORTFOLIO_ID`.
 6. Nom du champ de PnL latent par position dans le portfolio.
 7. Comportement quand le marché est fermé (ordre en attente : position provisoire `order:<id>`).
+
+
+## Ids confirmés via le connecteur eToro (2026-09-06)
+
+| Symbole | Id | Ouvrable sur ce compte |
+|---|---|---|
+| AAPL | 1001 | oui |
+| MSFT | 1004 | oui |
+| NVDA | 1137 | oui |
+| AMZN | 1005 | oui |
+| GOOGL | 6434 | oui |
+| META | 1003 | oui |
+| NEM (Newmont) | 1757 | oui, proxy or |
+| AEM (Agnico Eagle) | 6582 | oui, proxy or |
+| GOLD (CFD or) | **18** (et non 14) | non, `allowOpenPosition=false` |
+| SPY / VOO / IVV / QQQ / GLD / IAU / GDX | 3000 / 4238 / 3138 / 3006 / 3025 / 4365 / 3002 | non (ETF US, compte belge) |
+
+Levier autorisé sur les actions : 1 uniquement. Exposition minimale par position : 10 USD.

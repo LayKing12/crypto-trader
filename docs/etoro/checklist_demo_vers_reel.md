@@ -39,7 +39,7 @@ Remplir les valeurs observées. Source : `GET /etoro/status`, SMS de résumé qu
 - [ ] **Persistance** : après un redéploiement, `/etoro/status` conserve positions ouvertes, cooldowns et état
       du kill switch (volume `/data` fonctionnel).
 - [ ] **Notifications** : les 5 SMS reçus au moins une fois (ouverture, fermeture, résumé quotidien, breaker, kill switch).
-- [ ] **Healthcheck** `/etoro/health` vert sur Railway, aucun redémarrage inexpliqué sur les 2 dernières semaines.
+- [ ] **Healthcheck** `/etoro/health` vert sur Render, aucun redémarrage inexpliqué sur les 2 dernières semaines.
 - [ ] **Tests** : `python -m pytest` vert sur la version déployée.
 - [ ] **SL/TP visibles côté eToro** sur chaque position ouverte en démo (jamais de position nue).
 
@@ -54,7 +54,7 @@ navigateur ; aucune clé ne passe par un assistant IA, un chat ou un fichier du 
 - [ ] **Créer une nouvelle clé API scopée uniquement à l'Agent Portfolio** : nouvelle application sur le portail,
       permissions limitées à lecture des cours + gestion des positions de ce seul portfolio. Pas de retrait,
       pas d'accès au compte principal, pas de permissions de gestion de compte.
-- [ ] **Poser la clé sur Railway** (dashboard > Variables) : `ETORO_API_KEY`, `ETORO_USER_KEY`. Nulle part ailleurs.
+- [ ] **Poser la clé sur Render** (dashboard > Variables) : `ETORO_API_KEY`, `ETORO_USER_KEY`. Nulle part ailleurs.
 - [ ] **Poser `ETORO_PORTFOLIO_ID`** = identifiant de l'Agent Portfolio réel (vérifier que ce n'est pas le compte principal).
 - [ ] **Vérifier le solde du portfolio réel** = 1000 € maximum.
 - [ ] **Poser `ETORO_CREDENTIALS_ROTATED=true`**.
@@ -92,10 +92,10 @@ Déclencheurs (un seul suffit) : breaker déclenché, drawdown > limite de la se
 2. [ ] Vérifier sur eToro les positions ouvertes ; fermer manuellement celles qui posent problème
        (le kill switch bloque les ouvertures, il ne ferme pas les positions).
 3. [ ] Si le problème vient des identifiants ou d'un accès suspect : révoquer la clé API sur builders.etoro.com.
-4. [ ] Repasser `ETORO_TRADING_MODE=demo` sur Railway (le verrou `ETORO_CREDENTIALS_ROTATED` peut rester `true`,
+4. [ ] Repasser `ETORO_TRADING_MODE=demo` sur Render (le verrou `ETORO_CREDENTIALS_ROTATED` peut rester `true`,
        il ne s'applique qu'au mode `real`).
 5. [ ] Redéployer, vérifier `/etoro/status` (`mode: "demo"`).
-6. [ ] Analyser les logs Railway (`reason` des `RiskDecision`, erreurs `EtoroApiError`) et l'historique eToro.
+6. [ ] Analyser les logs Render (`reason` des `RiskDecision`, erreurs `EtoroApiError`) et l'historique eToro.
 7. [ ] Corriger, tester (`python -m pytest`), puis **reprendre la checklist à la section A** avec une nouvelle
        période de démo proportionnée à la gravité de l'incident.
 8. [ ] `POST /etoro/resume` seulement une fois la cause comprise et corrigée.

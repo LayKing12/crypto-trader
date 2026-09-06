@@ -1,4 +1,4 @@
-"""Tests du Notifier Twilio (client fake, aucun réseau)."""
+"""Tests — etoro/notifier.py (Telegram, chat trading, fake injecté)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -7,120 +7,71 @@ import pytest
 
 from etoro.config import Settings
 from etoro.models import ClosedPosition, DailyStats, Instrument, Position, Side
-from etoro.notifier import MAX_SMS_PER_HOUR, Notifier
+from etoro.notifier import Notifier
 
 
-class FakeMessages:
-    def __init__(self, fail: bool = False):
-        self.sent: list[dict] = []
+class FakeTelegram:
+    def __init__(self, configured=True, fail=False):
+        self.configured = configured
         self.fail = fail
+        self.calls: list[tuple[str, str, bool]] = []
 
-    def create(self, **kwargs):
+    async def send_text(self, chat, text, buttons=None, *, priority=False):
         if self.fail:
-            raise RuntimeError("twilio down")
-        self.sent.append(kwargs)
-        return kwargs
+            raise RuntimeError("telegram down")
+        self.calls.append((chat, text, priority))
+        return len(self.calls)
 
 
-class FakeClient:
-    def __init__(self, fail: bool = False):
-        self.messages = FakeMessages(fail=fail)
-
-
-def _settings(**overrides) -> Settings:
-    base = dict(
-        ETORO_API_KEY="test",
-        TWILIO_ACCOUNT_SID="AC123",
-        TWILIO_AUTH_TOKEN="tok",
-        TWILIO_FROM="+10000000000",
-        TWILIO_TO="+33600000000",
-    )
-    base.update(overrides)
-    return Settings(_env_file=None, **base)
-
-
-def _position() -> Position:
-    return Position(
-        position_id="p1",
-        instrument_id=1001,
-        side=Side.BUY,
-        amount=100,
-        open_rate=190.12,
-        stop_loss_rate=186.32,
-        take_profit_rate=197.72,
-        opened_at=datetime.now(timezone.utc),
-    )
+def _settings(mode="demo") -> Settings:
+    return Settings(ETORO_API_KEY="test", ETORO_TRADING_MODE=mode)
 
 
 @pytest.mark.asyncio
-async def test_noop_sans_config():
-    client = FakeClient()
-    notifier = Notifier(Settings(_env_file=None, ETORO_API_KEY="test"), client=client)
-    assert notifier.enabled is False
-    await notifier.send_position_opened(_position(), Instrument(symbol="AAPL", instrument_id=1001))
-    assert await notifier.send_text("hello") is False
-    assert client.messages.sent == []
+async def test_noop_when_not_configured():
+    tg = FakeTelegram(configured=False)
+    n = Notifier(_settings(), telegram=tg)
+    assert n.enabled is False
+    assert await n.send_text("hello") is False
+    assert tg.calls == []
 
 
 @pytest.mark.asyncio
-async def test_envoi_ouverture_demo():
-    client = FakeClient()
-    notifier = Notifier(_settings(), client=client)
-    await notifier.send_position_opened(_position(), Instrument(symbol="AAPL", instrument_id=1001))
-    assert len(client.messages.sent) == 1
-    msg = client.messages.sent[0]
-    body = msg["body"]
-    assert body.startswith("[CryptoMind eToro DEMO]")
-    assert "BUY AAPL" in body
-    assert "SL 186.32" in body and "TP 197.72" in body
-    assert msg["from_"] == "+10000000000" and msg["to"] == "+33600000000"
+async def test_position_opened_message_has_prefix_symbol_sl_tp():
+    tg = FakeTelegram()
+    n = Notifier(_settings(), telegram=tg)
+    pos = Position(position_id="p1", instrument_id=1001, side=Side.BUY, amount=100, open_rate=190.12,
+                   stop_loss_rate=186.32, take_profit_rate=197.72, opened_at=datetime.now(timezone.utc))
+    await n.send_position_opened(pos, Instrument(symbol="AAPL", instrument_id=1001))
+    chat, text, priority = tg.calls[0]
+    assert chat == "trading" and priority is False
+    assert "DEMO" in text and "AAPL" in text and "SL 186.32" in text and "TP 197.72" in text
 
 
 @pytest.mark.asyncio
-async def test_prefixe_real():
-    client = FakeClient()
-    notifier = Notifier(_settings(ETORO_MODE="real"), client=client)
-    await notifier.send_text("ping")
-    assert client.messages.sent[0]["body"].startswith("[CryptoMind eToro REAL]")
+async def test_real_prefix_and_priority_events():
+    tg = FakeTelegram()
+    n = Notifier(_settings("real"), telegram=tg)
+    await n.send_breaker_tripped(-3.5)
+    await n.send_kill_switch("api", True)
+    assert all(c[0] == "trading" and c[2] is True for c in tg.calls)
+    assert "REAL" in tg.calls[0][1] and "breaker" in tg.calls[0][1].lower()
+    assert "Kill switch ACTIVÉ" in tg.calls[1][1]
 
 
 @pytest.mark.asyncio
-async def test_messages_metier():
-    client = FakeClient()
-    notifier = Notifier(_settings(), client=client)
-    await notifier.send_position_closed(
-        ClosedPosition(position_id="p1", instrument_id=1001, realized_pnl=-3.5, closed_at=datetime.now(timezone.utc))
-    )
-    await notifier.send_daily_summary(DailyStats(date="2026-09-05", trades_opened=2, realized_pnl=12.0, kill_switch=True))
-    await notifier.send_breaker_tripped(-3.2)
-    await notifier.send_kill_switch("aliou", True)
-    bodies = [m["body"] for m in client.messages.sent]
-    assert "-3.50" in bodies[0]
-    assert "2026-09-05" in bodies[1] and "KILL SWITCH" in bodies[1]
-    assert "BREAKER" in bodies[2] and "-3.20%" in bodies[2]
-    assert "KILL SWITCH" in bodies[3] and "aliou" in bodies[3]
+async def test_closed_and_summary_messages():
+    tg = FakeTelegram()
+    n = Notifier(_settings(), telegram=tg)
+    await n.send_position_closed(ClosedPosition(position_id="p1", instrument_id=1001, realized_pnl=12.3,
+                                                closed_at=datetime.now(timezone.utc)))
+    await n.send_daily_summary(DailyStats(date="2026-09-06", trades_opened=2, trades_closed=1, realized_pnl=-5.0,
+                                          realized_pnl_pct=-0.5, open_positions=1, breaker_active=True))
+    assert "+12.30 USD" in tg.calls[0][1]
+    assert "Résumé 2026-09-06" in tg.calls[1][1] and "breaker ACTIF" in tg.calls[1][1]
 
 
 @pytest.mark.asyncio
-async def test_erreur_twilio_ne_leve_pas():
-    notifier = Notifier(_settings(), client=FakeClient(fail=True))
-    assert await notifier.send_text("boom") is False
-
-
-@pytest.mark.asyncio
-async def test_anti_spam():
-    client = FakeClient()
-    now = [1000.0]
-    notifier = Notifier(_settings(), client=client, clock=lambda: now[0])
-    for _ in range(MAX_SMS_PER_HOUR):
-        assert await notifier.send_text("x") is True
-    # 31e message ordinaire : bloqué
-    assert await notifier.send_text("trop") is False
-    assert len(client.messages.sent) == MAX_SMS_PER_HOUR
-    # breaker / kill switch passent toujours
-    await notifier.send_breaker_tripped(-4.0)
-    await notifier.send_kill_switch("api", True)
-    assert len(client.messages.sent) == MAX_SMS_PER_HOUR + 2
-    # une heure plus tard, la fenêtre glissante se libère
-    now[0] += 3601
-    assert await notifier.send_text("ok") is True
+async def test_telegram_failure_never_raises():
+    n = Notifier(_settings(), telegram=FakeTelegram(fail=True))
+    assert await n.send_text("x") is False

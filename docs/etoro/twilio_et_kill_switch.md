@@ -1,3 +1,5 @@
+> **Twilio retiré le 2026-09-06** : les notifications passent par Telegram (`notifications/README.md`). La section kill switch ci-dessous reste valable.
+
 # Twilio et kill switch — procédures opérationnelles
 
 ## 1. Régénérer le token Twilio et le mettre à jour sur Railway

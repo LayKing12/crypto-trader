@@ -26,7 +26,7 @@ etoro/
   news_feed.py      Sentiment news (eToro si dispo, sinon NewsAPI, sinon RSS Yahoo) -> -1..1
   risk_guard.py     Garde-fous : kill switch, breaker, score, SL/TP, univers, max positions, cooldown
   state_store.py    État JSON atomique (positions, cooldowns, PnL jour, breaker, kill switch)
-  notifier.py       SMS Twilio (no-op si non configuré)
+  notifier.py       message Telegram (no-op si non configuré)
   agent.py          PortfolioAgent : boucle de décision run_once / sync_positions / run_forever
   api.py            FastAPI : /etoro/kill, /etoro/resume, /etoro/status, /etoro/positions, /etoro/health
 dashboard/          Site Netlify (page + fonctions TS) qui relaie vers l'API ci-dessus
@@ -74,7 +74,23 @@ PortfolioAgent.sync_positions()  détecte SL/TP touchés -> RiskGuard.on_positio
 Plus : levier plafonné (`ETORO_MAX_LEVERAGE`, 1 par défaut, 5 max), taille de position plafonnée à 25 % de l'equity,
 confirmations Rankings et sentiment news activables/désactivables.
 
+## Hébergement (gratuit)
+
+```
+Navigateur ──► Netlify (page + fonctions, keepalive 10 min) ──► Render Free (FastAPI + agent) ──► eToro
+                                                                     │
+                                                                     └──► Supabase `cryptomind` (état + journal)
+```
+
+Railway a été abandonné (essai expiré). Le moteur tourne sur Render avec `ETORO_RUN_AGENT=true`,
+l'état est persisté dans Supabase, l'interface reste sur Netlify. Voir docs/hosting_render.md.
+
 ## Univers restreint
+
+Vérifié le 2026-09-06 via le connecteur eToro : sur ce compte (Belgique), l'or CFD (GOLD, id 18) et tous
+les ETF américains (SPY, GLD, IAU, VOO, IVV, QQQ, GDX) sont **non ouvrables**. L'exposition à l'or passe
+donc par deux minières aurifères, Newmont (NEM) et Agnico Eagle (AEM), toutes deux ouvrables.
+
 
 Par défaut : **AAPL, MSFT, NVDA, AMZN, GOOGL, SPY, XAUUSD**.
 
@@ -159,7 +175,7 @@ Toutes lues par `etoro/config.py` (fichier `.env` en local, onglet Variables sur
 | `ETORO_TP_PCT` | `4.0` | Take profit en % du prix d'entrée. |
 | `ETORO_POSITION_SIZE_PCT` | `10.0` | Taille de position en % de l'equity (max 25). |
 | `ETORO_MAX_LEVERAGE` | `1` | Levier maximal (1–5). |
-| `ETORO_UNIVERSE` | `AAPL,MSFT,NVDA,AMZN,GOOGL,SPY,XAUUSD` | Symboles autorisés, séparés par des virgules. |
+| `ETORO_UNIVERSE` | `AAPL,MSFT,NVDA,AMZN,GOOGL,META,NEM,AEM` | Symboles autorisés, séparés par des virgules. |
 | `ETORO_USE_RANKINGS` | `true` | Active la confirmation par l'API Rankings. |
 | `ETORO_RANKINGS_TOP_N` | `20` | Nombre de meilleurs traders examinés (1–100). |
 | `ETORO_RANKINGS_MAX_DD_PCT` | `15.0` | Drawdown max toléré pour retenir un trader. |
@@ -169,12 +185,12 @@ Toutes lues par `etoro/config.py` (fichier `.env` en local, onglet Variables sur
 | `NEWS_API_KEY` | *(vide)* | Clé NewsAPI (fallback si eToro n'expose pas de news). |
 | `ETORO_NEWS_MIN_SENTIMENT` | `-0.5` | Sentiment en dessous duquel le signal est ignoré (−1–1). |
 | `ETORO_STATE_PATH` | `/data/etoro_state.json` | Fichier d'état JSON (volume persistant sur Railway). |
-| `TWILIO_ACCOUNT_SID` | *(vide)* | Twilio — SID du compte. |
-| `TWILIO_AUTH_TOKEN` | *(vide)* | Twilio — token d'authentification. |
-| `TWILIO_FROM` | *(vide)* | Numéro expéditeur Twilio (E.164). |
-| `TWILIO_TO` | *(vide)* | Numéro destinataire des alertes SMS. |
+| `TELEGRAM_ENABLED` | `true` | Active les notifications Telegram. |
+| `TELEGRAM_BOT_TOKEN` | *(vide)* | Jeton du bot (@BotFather). |
+| `TELEGRAM_CHAT_ID_TRADING` | *(vide)* | Chat des événements de trading. |
+| `TELEGRAM_CHAT_ID_WATCH` | *(vide)* | Chat des alertes de veille (optionnel ici). |
 
-Si l'une des quatre variables Twilio manque, le `Notifier` est un no-op qui se contente de logger.
+Sans `TELEGRAM_BOT_TOKEN` et `TELEGRAM_CHAT_ID_TRADING`, le `Notifier` est un no-op qui se contente de logger. Mise en place : notifications/README.md.
 
 ## Sécurité
 
@@ -206,7 +222,10 @@ Le kill switch bloque les **ouvertures** ; les positions déjà ouvertes restent
 ## Documentation
 
 - [Contrat d'interfaces](CONTRACT.md) — source de vérité des modules.
-- [Déploiement Railway](docs/railway_setup.md) — service, variables, volume, healthcheck, clé API eToro.
+- [Hébergement Render](docs/hosting_render.md) — moteur gratuit, Blueprint, variables, keepalive.
+- [Supabase](docs/supabase_setup.md) — état persistant du bot et requêtes utiles.
+- [Dépôt GitHub](docs/github_setup.md) — création du dépôt et push.
+- [Déploiement Railway](docs/railway_setup.md) — OBSOLÈTE, conservé pour référence.
 - [Tableau de bord Netlify](docs/netlify_dashboard.md) — site cryptomind-etoro.netlify.app, variables Netlify, redéploiement.
 - [Checklist démo → réel](docs/checklist_demo_vers_reel.md) — critères de sortie de démo et étape bloquante.
 - `docs/etoro_api.md` — en-têtes et endpoints eToro vérifiés.

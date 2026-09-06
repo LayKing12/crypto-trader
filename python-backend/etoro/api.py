@@ -40,6 +40,8 @@ class _Deps:
     settings: Settings | None = None
     service: Any = None   # EtoroService (optionnel) : alimente /positions
     agent: Any = None     # PortfolioAgent (optionnel) : mapping instrument_id -> symbole
+    remote: Any = None    # SupabaseStore (optionnel) : persistance distante
+    agent_task: Any = None  # asyncio.Task de agent.run_forever() si ETORO_RUN_AGENT
     decision_log: Any = None  # DecisionLog (optionnel) : alimente /decisions
 
 
@@ -205,28 +207,48 @@ async def decisions(limit: int = 100, kind: str | None = None, symbol: str | Non
     return {"decisions": out, "count": len(out), "available": True}
 
 
+@router.get("/rankings/debug")
+async def rankings_debug() -> dict[str, Any]:
+    """Diagnostics du dernier appel à l'API Rankings eToro : brut page 1, compteurs de filtre, top, exposition."""
+    try:
+        from .rankings import LAST_DIAGNOSTICS, RANKINGS_MAX_PAGES, RANKINGS_PERIOD, RANKINGS_SORT
+
+        return {"available": True, "period": RANKINGS_PERIOD, "sort": RANKINGS_SORT, "pages": RANKINGS_MAX_PAGES,
+                "min_confirmation": _settings().rankings_min_confirmation, **LAST_DIAGNOSTICS}
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "detail": str(exc)}
+
+
 @router.get("/health")
 async def health() -> dict[str, Any]:
     """Sonde de vie (Railway healthcheck)."""
+    task = _deps.agent_task
     return {
         "status": "ok",
         "mode": _settings().etoro_mode,
         "store_configured": _deps.store is not None,
+        "run_agent": bool(_settings().etoro_run_agent),
+        "agent_running": bool(task is not None and not task.done()),
+        "supabase": "configured" if _deps.remote is not None else "off",
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def create_app(autowire: bool = True) -> FastAPI:
-    """App FastAPI autonome (Railway). Si `autowire`, câble store/guard/notifier au démarrage
-    quand configure() n'a pas déjà été appelé ; les modules sont importés tardivement."""
+    """App FastAPI autonome (Render). Si `autowire`, câble store/guard/notifier/service au démarrage
+    quand configure() n'a pas déjà été appelé, puis lance la boucle de l'agent si ETORO_RUN_AGENT."""
 
     @asynccontextmanager
     async def _lifespan(_: FastAPI):
         if autowire and _deps.store is None:
             _autowire()
-        yield
+        await _start_agent()
+        try:
+            yield
+        finally:
+            await _stop_agent()
 
-    app = FastAPI(title="CryptoMind eToro", version="0.1.0", lifespan=_lifespan)
+    app = FastAPI(title="CryptoMind eToro", version="0.2.0", lifespan=_lifespan)
     app.include_router(router)
     return app
 
@@ -234,32 +256,89 @@ def create_app(autowire: bool = True) -> FastAPI:
 def _autowire() -> None:  # pragma: no cover - câblage réel, testé manuellement
     settings = _settings()
     try:
+        from .decision_log import DecisionLog
         from .notifier import Notifier
         from .risk_guard import RiskGuard
         from .state_store import StateStore
+        from .supabase_store import SupabaseStore
 
-        store = StateStore(settings.etoro_state_path)
+        remote = SupabaseStore.from_settings(settings)
+        store = StateStore(settings.etoro_state_path, remote=remote)
         store.load()
-        from .decision_log import DecisionLog
-
-        decision_log = DecisionLog(settings.etoro_decisions_path)
+        decision_log = DecisionLog(settings.etoro_decisions_path, remote=remote)
         decision_log.load_tail()
         service = None
+        agent = None
         if settings.etoro_api_key:
             from .etoro_service import EtoroService
 
             service = EtoroService(settings)
+        guard = RiskGuard(settings, store)
+        notifier = Notifier(settings)
+        if settings.etoro_run_agent and service is not None:
+            from .agent import PortfolioAgent
+
+            agent = PortfolioAgent(settings, service, guard, store, notifier, decision_log=decision_log)
         configure(
-            store=store,
-            guard=RiskGuard(settings, store),
-            notifier=Notifier(settings),
-            settings=settings,
-            service=service,
-            decision_log=decision_log,
+            store=store, guard=guard, notifier=notifier, settings=settings,
+            service=service, agent=agent, decision_log=decision_log,
         )
-        log.info("etoro.api câblé automatiquement (mode %s)", settings.etoro_mode)
+        _deps.remote = remote
+        log.info("etoro.api câblé (mode %s, supabase=%s, run_agent=%s)",
+                 settings.etoro_mode, remote is not None, agent is not None)
     except Exception:  # noqa: BLE001
         log.exception("Câblage automatique impossible : /kill, /resume, /status répondront 503")
+
+
+async def _start_agent() -> None:
+    """Lance agent.run_forever() dans le process API (Render : un seul service web)."""
+    import asyncio
+
+    agent = _deps.agent
+    if agent is None or (_deps.agent_task is not None and not _deps.agent_task.done()):
+        return
+    settings = _settings()
+    try:
+        try:
+            from .signal_service import make_signal_provider
+        except Exception:  # noqa: BLE001
+            from app.services.etoro_signal_service import make_signal_provider  # type: ignore
+
+        try:
+            await agent.load_universe()
+        except Exception:  # noqa: BLE001
+            log.exception("load_universe a échoué, l'agent réessaiera à chaque cycle")
+        provider = make_signal_provider(agent)
+        _deps.agent_task = asyncio.create_task(
+            agent.run_forever(provider, interval_s=settings.etoro_cycle_interval_s)
+        )
+        log.info("Agent eToro lancé (cycle %ss, univers %s)", settings.etoro_cycle_interval_s, settings.universe)
+    except Exception:  # noqa: BLE001
+        log.exception("Impossible de lancer l'agent eToro")
+
+
+async def _stop_agent() -> None:
+    import asyncio
+
+    task = _deps.agent_task
+    if task is not None and not task.done():
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+    _deps.agent_task = None
+    for closer in (getattr(_deps.agent, "aclose", None), getattr(_deps.service, "aclose", None)):
+        if closer is not None:
+            try:
+                await closer()
+            except Exception:  # noqa: BLE001
+                pass
+    if _deps.remote is not None:
+        try:
+            _deps.remote.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 app = create_app()

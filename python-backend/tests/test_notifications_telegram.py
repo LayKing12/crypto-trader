@@ -93,20 +93,3 @@ async def test_setup_webhook_sends_secret():
         assert await svc.setup_webhook("https://cryptomind.onrender.com/") is True
     body = json.loads(route.calls[0].request.content)
     assert body["url"] == "https://cryptomind.onrender.com/telegram/webhook" and body["secret_token"] == "s3cret"
-
-
-@pytest.mark.asyncio
-async def test_etoro_notifier_relays_to_telegram():
-    from etoro.config import Settings
-    from etoro.notifier import Notifier
-
-    relayed: list[str] = []
-
-    async def relay(text: str) -> int:
-        relayed.append(text)
-        return 1
-
-    n = Notifier(Settings(ETORO_API_KEY="test"))
-    n.telegram_relay = relay
-    await n.send_text("Ouverture BUY AAPL")
-    assert relayed and "Ouverture BUY AAPL" in relayed[0] and "DEMO" in relayed[0]

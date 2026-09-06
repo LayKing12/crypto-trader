@@ -31,11 +31,11 @@ Netlify › Site configuration › Environment variables (scope Functions suffit
 
 | Variable | Valeur |
 |---|---|
-| `ETORO_API_URL` | URL publique du service Railway qui exécute le module, ex. `https://cryptomind-xxxx.up.railway.app` |
-| `ETORO_KILL_SWITCH_TOKEN` | exactement la même valeur que sur Railway |
+| `ETORO_API_URL` | URL publique du service Render, ex. `https://cryptomind-etoro.onrender.com` |
+| `ETORO_KILL_SWITCH_TOKEN` | exactement la même valeur que sur Render |
 | `DASHBOARD_PASSWORD` | mot de passe que vous taperez sur la page pour couper/relancer |
 
-Après ajout, aucune redéploiement n'est nécessaire pour les fonctions : elles lisent l'environnement à chaque appel.
+Après ajout ou modification d'une variable, relancer un déploiement (push sur main ou « Trigger deploy ») : les fonctions embarquent l'environnement au moment du build.
 Collez ces valeurs vous-même dans Netlify ; l'assistant IA ne doit jamais les recevoir.
 
 ## Endpoints Netlify
@@ -68,3 +68,11 @@ netlify deploy --prod --site 2d27eb34-ca55-492f-87db-5f29c9e4ef7d
 - Comparaison du mot de passe en temps constant ; 401 si faux, 503 si une variable manque.
 - La page est `noindex`, servie avec `Cache-Control: no-store` et `X-Frame-Options: DENY`.
 - Pour restreindre encore l'accès, activez « Site protection » (mot de passe visiteur) dans Netlify, plan Pro requis, déjà le cas sur ce compte.
+
+
+## Maintien en éveil du moteur Render
+
+`netlify/functions/keepalive.mts` est une fonction planifiée (`*/10 * * * *`) qui appelle
+`${ETORO_API_URL}/etoro/health` toutes les 10 minutes. Render Free met un service en veille après
+15 minutes sans requête ; cet appel l'en empêche. Sans `ETORO_API_URL`, la fonction ne fait rien.
+Les fonctions planifiées ne tournent que sur le déploiement publié.

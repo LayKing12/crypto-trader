@@ -41,6 +41,7 @@ async def start() -> None:
         from etoro.notifier import Notifier
         from etoro.risk_guard import RiskGuard
         from etoro.state_store import StateStore
+        from etoro.supabase_store import SupabaseStore
         from app.services.etoro_signal_service import make_signal_provider
 
         settings = get_settings()
@@ -49,11 +50,12 @@ async def start() -> None:
             return
 
         _service = EtoroService(settings)
-        store = StateStore(settings.etoro_state_path)
+        remote = SupabaseStore.from_settings(settings)
+        store = StateStore(settings.etoro_state_path, remote=remote)
         store.load()
         guard = RiskGuard(settings, store)
         notifier = Notifier(settings)
-        decision_log = DecisionLog(settings.etoro_decisions_path)
+        decision_log = DecisionLog(settings.etoro_decisions_path, remote=remote)
         decision_log.load_tail()
         _agent = PortfolioAgent(settings, _service, guard, store, notifier, decision_log=decision_log)
 
@@ -62,6 +64,7 @@ async def start() -> None:
             store=store, guard=guard, notifier=notifier, settings=settings,
             service=_service, agent=_agent, decision_log=decision_log,
         )
+        etoro_api._deps.remote = remote
 
         await _agent.load_universe()
         provider = make_signal_provider(_agent)
