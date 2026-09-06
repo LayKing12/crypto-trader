@@ -5,7 +5,7 @@ import ScoreRing from "../components/ScoreRing";
 import { api } from "../api";
 import { THEME } from "../theme";
 
-// Railway backend is proxied via Vite /api → https://crypto-trader-production-8ef4.up.railway.app
+// Railway backend is proxied via Vite /api → https://cryptomind-etoro.onrender.com
 
 function badge(val, color) {
   return (

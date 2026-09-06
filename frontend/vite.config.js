@@ -19,7 +19,7 @@ export default defineConfig({
     proxy: {
       // Dev only — in production Vercel rewrites handle /api/*
       "/api": {
-        target: "https://crypto-trader-production-8ef4.up.railway.app",
+        target: "https://cryptomind-etoro.onrender.com",
         changeOrigin: true,
         secure: true,
       },
