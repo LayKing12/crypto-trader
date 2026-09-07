@@ -58,6 +58,7 @@ class MarketWatch:
         self._kraken_price_fn = kraken_price_fn
         self._etoro = etoro_service
         self._refs: dict[tuple[str, str], float] = {}          # (source, symbol) -> prix de référence
+        self._smallcaps: dict[str, dict[str, Any]] = {}          # paire Kraken -> {symbol, rank, name} (observation seule)
         self._etoro_ids: dict[int, str] | None = None           # instrument_id -> symbole (résolu 1 fois)
         self._source_failing: dict[str, bool] = {}              # source -> erreur déjà journalisée
         self.last_tick_at: datetime | None = None
@@ -82,6 +83,8 @@ class MarketWatch:
             "last_error": self.last_error,
             "threshold_pct": self.threshold_pct,
             "kraken_pairs": self._settings.kraken_pairs if self._kraken_price_fn else [],
+            "smallcaps": len(self._smallcaps),
+            "smallcap_pairs": sorted(self._smallcaps),
             "etoro_symbols": self._settings.etoro_symbols if self._etoro is not None else [],
             "tracked": len(self._refs),
         }
@@ -128,13 +131,23 @@ class MarketWatch:
     def _note_source_ok(self, source: str) -> None:
         self._source_failing[source] = False
 
+    def set_smallcaps(self, items: list[dict[str, Any]]) -> None:
+        """Paires small caps à observer (jamais transmises au moteur de décision)."""
+        self._smallcaps = {str(i["pair"]): dict(i) for i in items if i.get("pair")}
+
+    @property
+    def kraken_watch_pairs(self) -> list[str]:
+        base = list(self._settings.kraken_pairs)
+        return base + [p for p in self._smallcaps if p not in base]
+
     async def _tick_kraken(self) -> list[Observation]:
         if self._kraken_price_fn is None:
             return []
         moves: list[Observation] = []
         failures = 0
         last_exc: BaseException | None = None
-        for pair in self._settings.kraken_pairs:
+        pairs = self.kraken_watch_pairs
+        for pair in pairs:
             try:
                 price = await self._kraken_price_fn(pair)
             except Exception as exc:  # noqa: BLE001 - une paire en erreur n'arrête pas les autres
@@ -146,8 +159,11 @@ class MarketWatch:
                 continue
             obs = self._compare("kraken", pair, float(price))
             if obs is not None:
+                sc = self._smallcaps.get(pair)
+                if sc:
+                    obs.detail.update({"smallcap": True, "rank": sc.get("rank"), "name": sc.get("name"), "coin": sc.get("symbol")})
                 moves.append(obs)
-        if failures and failures == len(self._settings.kraken_pairs) and last_exc is not None:
+        if failures and failures == len(pairs) and last_exc is not None:
             self._note_source_error("kraken", last_exc)
         else:
             self._note_source_ok("kraken")

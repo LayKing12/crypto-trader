@@ -165,6 +165,7 @@ async def status() -> dict[str, Any]:
         "breaker_until": until.isoformat() if until else None,
         "max_open_positions": settings.etoro_max_open_positions,
         "universe": settings.universe,
+        "experimental_symbols": settings.experimental_symbols,
         "snapshot": store.snapshot(),
     }
 

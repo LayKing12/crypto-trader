@@ -47,7 +47,11 @@ class Settings(BaseSettings):
     # Vérifié le 2026-09-06 via le connecteur eToro : sur ce compte (Belgique), l'or CFD (GOLD, id 18)
     # et tous les ETF américains (SPY, GLD, IAU, VOO...) sont non ouvrables. L'exposition or passe par
     # les minières Newmont (NEM) et Agnico Eagle (AEM), toutes deux ouvrables.
-    etoro_universe: str = Field(default="AAPL,MSFT,NVDA,AMZN,GOOGL,META,NEM,AEM", alias="ETORO_UNIVERSE")
+    # Crypto en démo eToro : TEMPORAIRE (détention réelle, levier 1). Dès la fusion Kraken + eToro, BTC/ETH/SOL/HYPE
+    # basculent sur Kraken et la permission Crypto est retirée de la clé eToro (voir docs/checklist_demo_vers_reel.md).
+    etoro_universe: str = Field(default="AAPL,MSFT,NVDA,AMZN,GOOGL,META,NEM,AEM,BTC,ETH,SOL,HYPE", alias="ETORO_UNIVERSE")
+    # Symboles marqués « actif expérimental » par eToro lui-même : label conservé dans les logs et le dashboard
+    etoro_experimental_symbols: str = Field(default="HYPE", alias="ETORO_EXPERIMENTAL_SYMBOLS")
 
     # --- Signaux de confirmation ---
     use_rankings_confirmation: bool = Field(default=True, alias="ETORO_USE_RANKINGS")
@@ -78,6 +82,10 @@ class Settings(BaseSettings):
     @property
     def universe(self) -> list[str]:
         return [s for s in self.etoro_universe.split(",") if s]
+
+    @property
+    def experimental_symbols(self) -> list[str]:
+        return [x.strip().upper() for x in self.etoro_experimental_symbols.split(",") if x.strip()]
 
     @property
     def base_url(self) -> str:

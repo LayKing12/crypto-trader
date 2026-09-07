@@ -340,6 +340,13 @@ async def start(settings: WatchSettings | None = None) -> None:
 
         _client = httpx.AsyncClient(timeout=httpx.Timeout(15.0))
         _news = NewsWatch(settings, _obs_log, _client)
+        if settings.watch_smallcaps_enabled:
+            try:
+                from .smallcaps import smallcap_pairs
+
+                _market.set_smallcaps(await smallcap_pairs(_client, settings.watch_smallcaps_rank_from, settings.watch_smallcaps_rank_to))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("watch small caps non chargées : %s", exc)
 
         try:
             _store = await _setup_rules(settings)

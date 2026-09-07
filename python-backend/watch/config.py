@@ -32,6 +32,10 @@ class WatchSettings(BaseSettings):
     watch_move_threshold_pct: float = Field(default=2.0, gt=0, alias="WATCH_MOVE_THRESHOLD_PCT")
     watch_kraken_pairs: str = Field(default=DEFAULT_KRAKEN_PAIRS, alias="WATCH_KRAKEN_PAIRS")
     watch_etoro_symbols: str = Field(default=DEFAULT_ETORO_SYMBOLS, alias="WATCH_ETORO_SYMBOLS")
+    # Small caps crypto (top 50-100 par capitalisation, cotées sur Kraken) : observation seule
+    watch_smallcaps_enabled: bool = Field(default=True, alias="WATCH_SMALLCAPS_ENABLED")
+    watch_smallcaps_rank_from: int = Field(default=51, ge=1, alias="WATCH_SMALLCAPS_RANK_FROM")
+    watch_smallcaps_rank_to: int = Field(default=100, ge=1, alias="WATCH_SMALLCAPS_RANK_TO")
     watch_news_interval_s: float = Field(default=900.0, ge=1, alias="WATCH_NEWS_INTERVAL_S")
     watch_news_sources: str = Field(default=DEFAULT_NEWS_SOURCES, alias="WATCH_NEWS_SOURCES")
     cryptopanic_token: str | None = Field(default=None, alias="CRYPTOPANIC_TOKEN")

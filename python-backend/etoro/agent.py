@@ -82,6 +82,8 @@ class PortfolioAgent:
             return
         try:
             data: dict[str, Any] = {"mode": self.settings.etoro_mode}
+            if signal is not None and signal.symbol.upper() in self.settings.experimental_symbols:
+                action = f"[EXPÉRIMENTAL eToro] {action}"
             if signal is not None:
                 data.update(
                     symbol=signal.symbol,
