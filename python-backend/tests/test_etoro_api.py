@@ -213,3 +213,47 @@ def test_decisions_journal_en_erreur_repond_indisponible():
         assert client.get("/etoro/decisions").json() == {"decisions": [], "count": 0, "available": False}
     finally:
         api.configure(store=None)
+
+
+def test_health_exposes_agent_and_supabase_fields():
+    from etoro import api as api_mod
+    from etoro.config import Settings
+
+    class _Store:
+        kill_switch = False
+        kill_switch_actor = None
+        breaker_until = None
+
+        def snapshot(self):
+            return {}
+
+    api_mod.configure(store=_Store(), settings=Settings(ETORO_API_KEY="test"))
+    api_mod._deps.remote = None
+    api_mod._deps.agent_task = None
+    from fastapi.testclient import TestClient
+
+    with TestClient(api_mod.create_app(autowire=False)) as client:
+        body = client.get("/etoro/health").json()
+    assert body["agent_running"] is False
+    assert body["supabase"] == "off"
+    assert body["run_agent"] is False
+
+
+def test_rankings_debug_endpoint():
+    from etoro import api as api_mod
+    from etoro.config import Settings
+
+    class _Store:
+        kill_switch = False
+        kill_switch_actor = None
+        breaker_until = None
+
+        def snapshot(self):
+            return {}
+
+    api_mod.configure(store=_Store(), settings=Settings(ETORO_API_KEY="test"))
+    from fastapi.testclient import TestClient
+
+    with TestClient(api_mod.create_app(autowire=False)) as client:
+        body = client.get("/etoro/rankings/debug").json()
+    assert body["available"] is True and "instruments" in body and body["min_confirmation"] == 0.3

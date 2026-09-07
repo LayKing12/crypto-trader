@@ -1,3 +1,5 @@
+> **OBSOLÈTE** : Railway remplacé par Render (offre Free) + Supabase. Voir `docs/hosting_render.md`.
+
 # Déploiement sur Railway
 
 Ce document couvre la mise en place du module eToro sur Railway : service, variables, volume persistant,

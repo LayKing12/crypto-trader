@@ -63,13 +63,14 @@ def settings():
 
 
 GOOD_ROWS = [
-    trader("alice", gain=30.0, dd=5.0),
-    trader("bob", gain=25.0, dd=8.0),
-    trader("carol", gain=40.0, dd=12.0),
-    trader("dave", gain=20.0, dd=3.0),
+    trader("alice", gain=30.0, dd=5.0, pm=75.0),   # score 70
+    trader("bob", gain=25.0, dd=8.0, pm=75.0),     # score 67
+    trader("carol", gain=40.0, dd=12.0, pm=90.0),  # score 78
+    trader("dave", gain=20.0, dd=3.0, pm=75.0),    # score 72
     trader("risky", gain=90.0, dd=20.0),  # exclu : DD > 15 %
     trader("newbie", gain=50.0, dd=4.0, first_activity="2026-06-01T00:00:00Z"),  # exclu : < 12 mois
     trader("erratic", gain=35.0, dd=6.0, pm=40.0),  # exclu : mois profitables < 60 %
+    trader("lottery", gain=1880.0, dd=0.0, pm=100.0, copiers=0),  # exclu : 0 copieur (compte inactif à gain fantaisiste)
 ]
 
 
@@ -81,11 +82,12 @@ async def test_filters_exclude_high_drawdown_short_history_and_low_profitable_mo
         top = await rankings.get_top_traders(settings, client)
     names = {t.username for t in top}
     assert names == {"alice", "bob", "carol", "dave"}
-    assert "risky" not in names and "newbie" not in names and "erratic" not in names
-    # Tri par régularité : alice (30/6 = 5.0) et dave (20/4 = 5.0) devant carol (40/13 = 3.08)
-    # malgré son gain brut le plus élevé ; bob (25/9 = 2.78) ferme la marche.
-    assert [t.username for t in top] == ["alice", "dave", "carol", "bob"]
-    assert all(t.score > 0 for t in top)
+    assert "risky" not in names and "newbie" not in names and "erratic" not in names and "lottery" not in names
+    # Score de régularité = mois profitables - drawdown, le gain n'y entre pas :
+    # carol (90-12 = 78) > dave (75-3 = 72) > alice (75-5 = 70) > bob (75-8 = 67).
+    assert [t.username for t in top] == ["carol", "dave", "alice", "bob"]
+    assert [round(t.score) for t in top] == [78, 72, 70, 67]
+    assert rankings.LAST_DIAGNOSTICS["filter"]["dropped"]["copiers"] == 1
 
 
 @pytest.mark.asyncio
@@ -100,6 +102,11 @@ async def test_auth_headers_and_query_params(settings):
     assert len(req.headers["x-request-id"]) == 36
     assert req.url.params["period"] == rankings.RANKINGS_PERIOD
     assert req.url.params["pageSize"] == "100"
+    # Univers validé le 2026-09-07 : Popular Investors, >= 100 copieurs, risque <= 5, tri par copieurs
+    assert req.url.params["sort"] == "-copiers"
+    assert req.url.params["popularInvestor"] == "true"
+    assert req.url.params["copiersMin"] == "100"
+    assert req.url.params["riskScoreMax"] == "5"
 
 
 @pytest.mark.asyncio

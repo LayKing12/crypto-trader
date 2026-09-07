@@ -28,10 +28,30 @@ def _get_client() -> Client:
     return _client
 
 
+def _relay_telegram(body: str) -> None:
+    """Relais vers le chat Telegram « trading » (même flux que le module eToro). No-op si non configuré."""
+    try:
+        import asyncio
+
+        from notifications.telegram_service import get_service
+
+        svc = get_service()
+        if not svc.configured:
+            return
+        coro = svc.send_trading_event(f"[Kraken {'PAPER' if settings.paper_trading else 'LIVE'}] {body}")
+        try:
+            asyncio.get_running_loop().create_task(coro)
+        except RuntimeError:
+            asyncio.run(coro)
+    except Exception as e:  # noqa: BLE001
+        log.warning("telegram_relay_error", error=str(e))
+
+
 def send_message(body: str, urgent: bool = False) -> bool:
-    """Send WhatsApp message. Returns True on success."""
+    """Send WhatsApp message (Twilio, optional) and relay to Telegram. Returns True on success."""
+    _relay_telegram(body)
     if not settings.whatsapp_recipient:
-        log.warning("whatsapp_skip", reason="WHATSAPP_RECIPIENT not set")
+        log.info("whatsapp_skip", reason="WHATSAPP_RECIPIENT not set (Telegram only)")
         return False
 
     try:

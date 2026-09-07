@@ -1,0 +1,88 @@
+# Blueprint Render : service unique CryptoMind = bot Kraken (paper trading) + module eToro + veille + contributions.
+# Offre Free : 750 h/mois pour tout le compte, d'où un seul service. Mise en veille après 15 min sans
+# requête, contrée par la fonction planifiée Netlify (dashboard) qui appelle /health toutes les 10 min.
+services:
+  - type: web
+    name: cryptomind
+    runtime: python
+    plan: free
+    region: frankfurt
+    rootDir: python-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # --- Kraken : paper trading depuis zéro, historique vide ---
+      - key: PAPER_TRADING
+        value: "true"
+      - key: TOTAL_CAPITAL_USD
+        value: "1000.0"
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      # Base Postgres Supabase (projet cryptomind, chaîne "Transaction pooler" avec le mot de passe de la base)
+      - key: DATABASE_URL
+        sync: false
+      # Clés Kraken régénérées (permissions : Query Funds, Query Open Orders & Trades, Create & Modify Orders ; jamais Withdraw)
+      - key: KRAKEN_API_KEY
+        sync: false
+      - key: KRAKEN_SECRET_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: COINGECKO_API_KEY
+        sync: false
+      # --- eToro (mêmes valeurs que le service cryptomind-etoro) ---
+      - key: ETORO_TRADING_MODE
+        value: demo
+      - key: ETORO_CREDENTIALS_ROTATED
+        value: "false"
+      - key: ETORO_AGENT_ENABLED
+        value: "true"
+      - key: ETORO_UNIVERSE
+        value: AAPL,MSFT,NVDA,AMZN,GOOGL,META,NEM,AEM
+      - key: ETORO_MAX_OPEN_POSITIONS
+        value: "3"
+      - key: ETORO_MIN_SCORE
+        value: "70"
+      - key: ETORO_RANKINGS_MIN_CONFIRMATION
+        value: "0.3"
+      - key: ETORO_STATE_PATH
+        value: ./data/etoro_state.json
+      - key: ETORO_DECISIONS_PATH
+        value: ./data/etoro_decisions.jsonl
+      - key: ETORO_API_KEY
+        sync: false
+      - key: ETORO_USER_KEY
+        sync: false
+      - key: ETORO_KILL_SWITCH_TOKEN
+        sync: false
+      - key: SUPABASE_URL
+        value: https://zawdnmxvtsrnshfkvcoc.supabase.co
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # --- Veille (observation seulement) ---
+      - key: WATCH_ENABLED
+        value: "true"
+      - key: WATCH_LOG_PATH
+        value: ./data/observations.jsonl
+      # --- Telegram (deux chats) + webhook des boutons ---
+      - key: TELEGRAM_ENABLED
+        value: "true"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID_TRADING
+        sync: false
+      - key: TELEGRAM_CHAT_ID_WATCH
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_PUBLIC_URL
+        value: https://cryptomind.onrender.com
+      # --- Contributions mensuelles ---
+      - key: CONTRIBUTION_ENABLED
+        value: "true"

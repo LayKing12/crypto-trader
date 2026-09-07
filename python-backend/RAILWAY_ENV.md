@@ -109,7 +109,7 @@ checklist démo → réel : `docs/etoro/checklist_demo_vers_reel.md`.
 | `ETORO_TRADING_MODE` | `demo` | `demo` ou `real` — chemins `/demo/...` vs `/trading/execution/...` |
 | `ETORO_CREDENTIALS_ROTATED` | `false` | Doit être `true` pour trader en `real` (étape bloquante) |
 | `ETORO_KILL_SWITCH_TOKEN` | | Token du header `X-Kill-Token` pour `POST /etoro/kill` |
-| `ETORO_UNIVERSE` | `AAPL,MSFT,NVDA,AMZN,GOOGL,SPY,XAUUSD` | Univers restreint |
+| `ETORO_UNIVERSE` | `AAPL,MSFT,NVDA,AMZN,GOOGL,META,NEM,AEM` | Univers restreint |
 | `ETORO_MAX_OPEN_POSITIONS` | `3` | 1..5 positions simultanées |
 | `ETORO_COOLDOWN_HOURS` | `4` | Délai entre deux trades sur le même instrument |
 | `ETORO_DAILY_LOSS_LIMIT_PCT` | `3.0` | Circuit breaker : pause 24 h au-delà |
@@ -142,3 +142,7 @@ Deux chats : veille (alertes avec boutons Exécuté / Ignoré / Reporté) et tra
 | `TELEGRAM_CHAT_ID_TRADING` | chat des événements de trading |
 | `TELEGRAM_WEBHOOK_SECRET` | secret long, vérifié sur chaque webhook |
 | `TELEGRAM_PUBLIC_URL` | URL publique du backend, enregistre le webhook au démarrage |
+
+| `SUPABASE_URL` | `https://<ref>.supabase.co` | Persistance eToro (tables etoro_state / etoro_decisions) |
+| `SUPABASE_SERVICE_KEY` | | Clé service role Supabase |
+| `ETORO_RUN_AGENT` | `false` | `true` : boucle de l'agent dans le process API (sinon etoro_runtime) |

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services import etoro_signal_service as svc
+from etoro import signal_service as svc
 from etoro.config import Settings
 from etoro.models import Candle, Instrument, Side
 

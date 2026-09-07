@@ -4,13 +4,13 @@ All functions are pure (no I/O). Results rounded to 2 dp.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from app.utils.math_utils import (
+from cryptomind.math_utils import (
     calc_rsi, calc_ema, calc_atr, calc_volatility_30d, calc_volume_ratio,
     calc_macd, calc_obv_trend,
 )
-from app.utils.logging_utils import get_logger
+import logging
 
-log = get_logger(__name__)
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,13 +21,13 @@ class Indicators:
     ema20: float | None
     ema50: float | None
     ema200: float | None
+    ema21: float | None
+    ema55: float | None
+    ema100: float | None
     atr: float | None
     volatility_30d: float | None
     volume_ratio: float
     regime: str  # bull_trend / bear_trend / ranging
-    ema21: float | None = None
-    ema55: float | None = None
-    ema100: float | None = None
     macd_cross_up: bool = field(default=False)   # MACD line crossed above signal
     obv_rising: bool = field(default=False)       # OBV trending up
 
@@ -63,7 +63,7 @@ def compute_indicators(
     macd_cross_up = bool(macd_line and macd_signal and macd_line > macd_signal)
     obv_rising = calc_obv_trend(closes, volumes)
 
-    log.debug("indicators_computed", symbol=symbol, rsi=rsi, ema21=ema21, ema55=ema55, macd_cross_up=macd_cross_up)
+    log.debug("indicators_computed symbol=%s rsi=%s ema21=%s ema55=%s macd_cross_up=%s", symbol, rsi, ema21, ema55, macd_cross_up)
 
     return Indicators(
         symbol=symbol,

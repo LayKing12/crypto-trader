@@ -4,6 +4,11 @@ Contenu : positions ouvertes par instrument, date du dernier trade par instrumen
 PnL du jour, equity de début de journée, circuit breaker et kill switch.
 Toutes les dates sont timezone-aware UTC. Chaque mutation via les méthodes `record_*`,
 `set_kill_switch` et `reset_day` est persistée immédiatement.
+
+Persistance distante optionnelle (`remote`, duck typing d'un `SupabaseStore`) : `load()` prend
+l'état distant s'il existe, `save()` écrit le fichier local PUIS pousse l'état vers Supabase.
+La couche distante ne fait jamais échouer l'agent : en cas de panne, le fichier local reste
+la source de vérité.
 """
 from __future__ import annotations
 
@@ -12,7 +17,10 @@ import logging
 import os
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - évite un import circulaire au niveau module
+    from etoro.supabase_store import SupabaseStore
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +57,15 @@ def _parse_date(value: Any) -> date | None:
 class StateStore:
     """État persistant de l'agent, sérialisé en JSON (write .tmp + os.replace)."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, remote: "SupabaseStore | None" = None) -> None:
         self.path = Path(path)
+        self.remote = remote
         self._reset_state()
+
+    @property
+    def persistence(self) -> str:
+        """`"supabase"` si une persistance distante est branchée, sinon `"local"`."""
+        return "supabase" if self.remote is not None else "local"
 
     # ------------------------------------------------------------------ état
 
@@ -68,8 +82,13 @@ class StateStore:
     # ---------------------------------------------------------- persistance
 
     def load(self) -> None:
-        """Charge l'état depuis le disque. Fichier absent ou corrompu => état vide + warning."""
+        """Charge l'état : Supabase d'abord (si branché et non vide), sinon le fichier local.
+
+        Fichier absent ou corrompu => état vide + warning.
+        """
         self._reset_state()
+        if self._load_remote():
+            return
         if not self.path.exists():
             logger.info("state_store: aucun fichier d'état à %s, démarrage à vide", self.path)
             return
@@ -84,6 +103,27 @@ class StateStore:
                 "state_store: fichier d'état %s illisible (%s) : repart d'un état vide", self.path, exc
             )
             self._reset_state()
+
+    def _load_remote(self) -> bool:
+        """Tente de charger l'état distant. True si l'état a été appliqué depuis Supabase."""
+        if self.remote is None:
+            return False
+        try:
+            data = self.remote.get_state()
+        except Exception as exc:  # noqa: BLE001 - la couche distante ne bloque jamais
+            logger.warning("state_store: lecture Supabase impossible (%s) : repli sur le fichier local", exc)
+            return False
+        if not isinstance(data, dict) or not data:
+            logger.info("state_store: aucun état dans Supabase, repli sur le fichier local")
+            return False
+        try:
+            self._apply(data)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            logger.warning("state_store: état Supabase invalide (%s) : repli sur le fichier local", exc)
+            self._reset_state()
+            return False
+        logger.info("state_store: état chargé depuis Supabase")
+        return True
 
     def _apply(self, data: dict[str, Any]) -> None:
         positions = data.get("open_positions_by_instrument") or {}
@@ -122,10 +162,12 @@ class StateStore:
         }
 
     def save(self) -> None:
-        """Écriture atomique : dossier parent créé si absent, fichier .tmp puis os.replace."""
+        """Écriture atomique locale (dossier parent créé si absent, .tmp puis os.replace),
+        puis poussée vers Supabase si `remote` est branché (sans jamais lever)."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self.path.with_name(self.path.name + ".tmp")
-        payload = json.dumps(self._to_dict(), indent=2, sort_keys=True)
+        data = self._to_dict()
+        payload = json.dumps(data, indent=2, sort_keys=True)
         try:
             with open(tmp_path, "w", encoding="utf-8") as fh:
                 fh.write(payload)
@@ -137,6 +179,18 @@ class StateStore:
                 tmp_path.unlink(missing_ok=True)
             finally:
                 raise
+        self._save_remote(data)
+
+    def _save_remote(self, data: dict[str, Any]) -> None:
+        if self.remote is None:
+            return
+        try:
+            ok = self.remote.upsert_state(data)
+        except Exception as exc:  # noqa: BLE001 - la couche distante ne bloque jamais
+            logger.warning("state_store: écriture Supabase impossible (%s), fichier local conservé", exc)
+            return
+        if ok is False:
+            logger.warning("state_store: écriture Supabase refusée, fichier local conservé")
 
     # ------------------------------------------------------------ mutations
 
@@ -177,4 +231,5 @@ class StateStore:
         data = self._to_dict()
         data.pop("saved_at", None)
         data["open_positions_count"] = len(self.open_positions_by_instrument)
+        data["persistence"] = self.persistence
         return data

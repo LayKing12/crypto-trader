@@ -44,7 +44,10 @@ class Settings(BaseSettings):
     etoro_max_leverage: int = Field(default=1, ge=1, le=5, alias="ETORO_MAX_LEVERAGE")
 
     # --- Univers restreint ---
-    etoro_universe: str = Field(default="AAPL,MSFT,NVDA,AMZN,GOOGL,SPY,XAUUSD", alias="ETORO_UNIVERSE")
+    # Vérifié le 2026-09-06 via le connecteur eToro : sur ce compte (Belgique), l'or CFD (GOLD, id 18)
+    # et tous les ETF américains (SPY, GLD, IAU, VOO...) sont non ouvrables. L'exposition or passe par
+    # les minières Newmont (NEM) et Agnico Eagle (AEM), toutes deux ouvrables.
+    etoro_universe: str = Field(default="AAPL,MSFT,NVDA,AMZN,GOOGL,META,NEM,AEM", alias="ETORO_UNIVERSE")
 
     # --- Signaux de confirmation ---
     use_rankings_confirmation: bool = Field(default=True, alias="ETORO_USE_RANKINGS")
@@ -56,15 +59,16 @@ class Settings(BaseSettings):
     news_api_key: str | None = Field(default=None, alias="NEWS_API_KEY")
     news_min_sentiment: float = Field(default=-0.5, ge=-1, le=1, alias="ETORO_NEWS_MIN_SENTIMENT")
 
+    # --- Boucle de l'agent dans le process API (hébergeur à service unique : Render) ---
+    etoro_run_agent: bool = Field(default=False, alias="ETORO_RUN_AGENT")
+    etoro_cycle_interval_s: int = Field(default=300, ge=30, alias="ETORO_CYCLE_INTERVAL_S")
+
     # --- Persistance ---
+    supabase_url: str | None = Field(default=None, alias="SUPABASE_URL")
+    supabase_service_key: str | None = Field(default=None, alias="SUPABASE_SERVICE_KEY")
     etoro_state_path: str = Field(default="/data/etoro_state.json", alias="ETORO_STATE_PATH")
     etoro_decisions_path: str = Field(default="/data/etoro_decisions.jsonl", alias="ETORO_DECISIONS_PATH")
 
-    # --- Twilio ---
-    twilio_account_sid: str | None = Field(default=None, alias="TWILIO_ACCOUNT_SID")
-    twilio_auth_token: str | None = Field(default=None, alias="TWILIO_AUTH_TOKEN")
-    twilio_from: str | None = Field(default=None, alias="TWILIO_FROM")
-    twilio_to: str | None = Field(default=None, alias="TWILIO_TO")
 
     @field_validator("etoro_universe")
     @classmethod
@@ -78,10 +82,6 @@ class Settings(BaseSettings):
     @property
     def base_url(self) -> str:
         return self.etoro_base_url_real if self.etoro_mode == "real" else self.etoro_base_url_demo
-
-    @property
-    def twilio_configured(self) -> bool:
-        return all([self.twilio_account_sid, self.twilio_auth_token, self.twilio_from, self.twilio_to])
 
     @property
     def real_mode_locked(self) -> bool:
