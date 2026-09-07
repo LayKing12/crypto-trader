@@ -41,7 +41,9 @@ ENDPOINTS: dict[str, str] = {
 # (alternatives documentées : "LastYear" = année civile précédente, "AbsOneYear").
 RANKINGS_PERIOD = "OneYearAgo"
 # Tri serveur : on ratisse large (gain décroissant) puis on filtre/re-trie côté client.
-RANKINGS_SORT = "-gain"
+RANKINGS_SORT = "-copiers"  # tri par copieurs réels (validé le 2026-09-07 : le tri -gain ramenait des comptes inactifs)
+# Filtres serveur : Popular Investors certifiés, suivis par au moins 100 copieurs, score de risque <= 5.
+RANKINGS_SERVER_FILTERS: dict[str, Any] = {"popularInvestor": "true", "copiersMin": 100, "riskScoreMax": 5}
 RANKINGS_PAGE_SIZE = 100  # max autorisé par l'API
 RANKINGS_MAX_PAGES = 5
 
@@ -187,21 +189,27 @@ def _as_datetime(v: Any) -> datetime | None:
 
 
 def regularity_score(t: TraderRank) -> float:
-    """Score de régularité : gain / (1 + maxDD) pondéré par la part de mois profitables.
+    """Score de régularité SANS le gain : mois profitables (%) moins drawdown max (points).
 
-    Un gain de 30 % avec 5 % de DD (score ~ 5 x pm) bat un gain de 60 % avec 15 % de DD (~3.75 x pm).
+    Le gain n'entre pas dans le score : un compte inactif affiche 100 % de mois profitables et 0 % de
+    drawdown avec un gain fantaisiste, et le ratio gain / drawdown le mettait en tête. Ici, 77 % de
+    mois profitables avec 14 % de DD donne 63 ; 85 % avec 12 % donne 73 et passe devant.
     """
-    return t.gain / (1.0 + t.max_drawdown) * (t.profitable_months_pct / 100.0)
+    return t.profitable_months_pct - t.max_drawdown
 
 
 def filter_traders(traders: list[TraderRank], settings: Settings, now: datetime | None = None) -> list[TraderRank]:
     """Applique les filtres du contrat : DD max, historique >= 12 mois, mois profitables >= seuil."""
     now = now or datetime.now(timezone.utc)
     kept: list[TraderRank] = []
-    drops = {"no_username": 0, "drawdown": 0, "history": 0, "profitable_months": 0}
+    drops = {"no_username": 0, "copiers": 0, "drawdown": 0, "history": 0, "profitable_months": 0}
+    min_copiers = int(RANKINGS_SERVER_FILTERS.get("copiersMin", 0))
     for t in traders:
         if not t.username:
             drops["no_username"] += 1
+            continue
+        if t.copiers < min_copiers:  # filet de sécurité si le filtre serveur n'est pas appliqué
+            drops["copiers"] += 1
             continue
         if t.max_drawdown > settings.rankings_max_drawdown_pct:
             drops["drawdown"] += 1
@@ -224,13 +232,14 @@ def filter_traders(traders: list[TraderRank], settings: Settings, now: datetime 
 def rank_traders(traders: list[TraderRank], top_n: int) -> list[TraderRank]:
     """Trie par score de régularité décroissant et garde les top_n."""
     scored = [t.model_copy(update={"score": regularity_score(t)}) for t in traders]
-    scored.sort(key=lambda t: (t.score, t.profitable_months_pct, t.gain), reverse=True)
+    scored.sort(key=lambda t: (t.score, t.copiers, t.profitable_months_pct), reverse=True)
     return scored[:top_n]
 
 
 # --- Appels API --------------------------------------------------------------------------------
 async def _fetch_rankings_page(settings: Settings, client: httpx.AsyncClient, page: int) -> dict[str, Any]:
-    params = {"period": RANKINGS_PERIOD, "sort": RANKINGS_SORT, "page": page, "pageSize": RANKINGS_PAGE_SIZE}
+    params = {"period": RANKINGS_PERIOD, "sort": RANKINGS_SORT, "page": page, "pageSize": RANKINGS_PAGE_SIZE,
+              **RANKINGS_SERVER_FILTERS}
     resp = await client.get(
         f"{settings.base_url}{ENDPOINTS['rankings']}",
         params=params,
@@ -280,9 +289,10 @@ async def get_top_traders(settings: Settings, client: httpx.AsyncClient) -> list
     logger.info("rankings: %d candidats, %d retenus après filtres, top %d", len(raw), len(top), settings.rankings_top_n)
     LAST_DIAGNOSTICS["top"] = {
         "period": RANKINGS_PERIOD, "sort": RANKINGS_SORT, "pages": RANKINGS_MAX_PAGES,
-        "candidates": len(raw), "top_n": settings.rankings_top_n, "kept": len(top),
+        "server_filters": dict(RANKINGS_SERVER_FILTERS), "candidates": len(raw), "top_n": settings.rankings_top_n, "kept": len(top),
         "traders": [{"username": t.username, "gain": t.gain, "max_drawdown": t.max_drawdown,
-                     "profitable_months_pct": t.profitable_months_pct, "score": t.score} for t in top],
+                     "profitable_months_pct": t.profitable_months_pct, "copiers": t.copiers, "score": t.score}
+                    for t in top],
         "at": datetime.now(timezone.utc).isoformat(),
     }
     _cache_set(key, top)

@@ -69,7 +69,7 @@ Un profil privé / inconnu renvoie 404 (documenté pour l'endpoint ranking-row ;
 | Unités | `gain`, `dailyDD`, `weeklyDD`, `peakToValley`, `profitableMonthsPct` en pourcents ; les drawdowns sont probablement négatifs -> on prend la valeur absolue. | Hypothèse |
 | « Max drawdown » | `peakToValley` (drawdown crête-creux sur la période) si présent, sinon `max(|dailyDD|, |weeklyDD|)`. | Hypothèse |
 | « >= 12 mois d'historique » | `now - firstActivity >= 365 j`, sinon `weeksSinceRegistration >= 52`, sinon `activeWeeks >= 52`. | Hypothèse |
-| Univers | tri serveur `-gain`, 5 pages x 100 = 500 candidats max, puis filtres + re-tri client. Pas de filtre `popularInvestor=true` (réduirait trop le bassin) — constantes en tête de fichier. | Hypothèse |
+| Univers | filtres serveur `popularInvestor=true`, `copiersMin=100`, `riskScoreMax=5`, tri `-copiers`, 5 pages x 100, puis filtres client (DD, historique, mois profitables) et re-tri. Validé le 2026-09-07 après comparaison chiffrée : le tri `-gain` ramenait des comptes inactifs à drawdown nul et 0 copieur. | Validé |
 | Exposition | seules les `positions` directes comptent (pas les `socialTrades` copiées : on cherche la conviction propre du trader). | Hypothèse |
 | Sens | `get_confirmation(..., side=None)` : par défaut toute exposition compte (contrat). Si `side` est passé, seules les positions dans le même sens (`isBuy`) comptent. | Extension optionnelle |
 | Dénominateur | traders dont le portfolio est illisible (404/403/erreur) exclus du dénominateur ; si aucun n'est lisible -> `None`. | Choix |
@@ -87,12 +87,12 @@ Un profil privé / inconnu renvoie 404 (documenté pour l'endpoint ranking-row ;
 ### Score de régularité
 
 ```
-score = gain / (1 + max_drawdown) * (profitable_months_pct / 100)
+score = profitable_months_pct - max_drawdown   # le gain n'entre pas dans le score
 ```
 
-Le gain est divisé par le drawdown (ratio de type Calmar : on paie la performance en pain subi) et
-pondéré par la proportion de mois gagnants (régularité). Exemple : 30 % de gain avec 5 % de DD et 75 %
-de mois profitables donne 3,75 ; 60 % de gain avec 15 % de DD donne 2,81 — le premier passe devant malgré
+Le gain est volontairement exclu : un compte inactif affiche 100 % de mois profitables, 0 % de drawdown
+et un gain fantaisiste, et tout score fondé sur le gain le met en tête. Exemple : 85 % de mois profitables
+avec 12 % de DD donne 73 ; 77 % avec 14 % donne 63 — le premier passe devant. Départage par copieurs réels, puis
 un gain brut deux fois plus faible. Départage : `profitable_months_pct` puis `gain`.
 
 ## 7. Cache

@@ -211,9 +211,10 @@ async def decisions(limit: int = 100, kind: str | None = None, symbol: str | Non
 async def rankings_debug() -> dict[str, Any]:
     """Diagnostics du dernier appel à l'API Rankings eToro : brut page 1, compteurs de filtre, top, exposition."""
     try:
-        from .rankings import LAST_DIAGNOSTICS, RANKINGS_MAX_PAGES, RANKINGS_PERIOD, RANKINGS_SORT
+        from .rankings import LAST_DIAGNOSTICS, RANKINGS_MAX_PAGES, RANKINGS_PERIOD, RANKINGS_SERVER_FILTERS, RANKINGS_SORT
 
         return {"available": True, "period": RANKINGS_PERIOD, "sort": RANKINGS_SORT, "pages": RANKINGS_MAX_PAGES,
+                "server_filters": dict(RANKINGS_SERVER_FILTERS),
                 "min_confirmation": _settings().rankings_min_confirmation, **LAST_DIAGNOSTICS}
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "detail": str(exc)}
@@ -299,10 +300,7 @@ async def _start_agent() -> None:
         return
     settings = _settings()
     try:
-        try:
-            from .signal_service import make_signal_provider
-        except Exception:  # noqa: BLE001
-            from app.services.etoro_signal_service import make_signal_provider  # type: ignore
+        from .signal_service import make_signal_provider
 
         try:
             await agent.load_universe()
