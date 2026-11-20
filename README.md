@@ -2,13 +2,13 @@
 
 Projet vierge, prêt pour Claude Code, avec trois packs de skills installés pour travailler avec moins de tokens et de meilleures pratiques. Ancien contenu (crypto-trader) supprimé, historique git effacé.
 
-## Ce qui est installé (`.claude/skills/`, 33 skills)
+## Ce qui est installé (`.claude/skills/`, 15 skills)
 
 | Pack | Skills | Source |
 |---|---|---|
 | **graphify** | `/graphify` : graphe de connaissances du projet ; Claude interroge le graphe avant de lire les fichiers bruts | [safishamsi/graphify](https://github.com/safishamsi/graphify) |
-| **ponytail** | 6 skills (`ponytail`, `-review`, `-audit`, `-debt`, `-gain`, `-help`) : solution la plus courte, réponses concises | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) |
-| **agent-skills** | 26 skills de cycle de vie (spec, plan, TDD, revue, sécurité, ship…) ; `.claude/references/` contient les checklists qu'ils citent | [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) |
+| **ponytail** | 3 skills (`ponytail`, `-review`, `-audit`) : solution la plus courte, réponses concises | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) |
+| **agent-skills** | 11 skills génériques : `spec-driven-development`, `planning-and-task-breakdown`, `incremental-implementation`, `test-driven-development`, `debugging-and-error-recovery`, `code-review-and-quality`, `code-simplification`, `git-workflow-and-versioning`, `security-and-hardening`, `context-engineering`, `api-and-interface-design` ; `.claude/references/` contient les checklists qu'ils citent | [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) |
 
 ## À faire une fois sur ta machine
 
@@ -19,6 +19,15 @@ pip install graphifyy      # Python 3.11.5 à 3.14
 ```
 
 Puis, quand il y aura du code : `/graphify .` pour construire le graphe, `graphify update .` après chaque modification.
+
+## Skills retirés (jugés inutiles ici)
+
+Retirés pour alléger le contexte : stack ou usage absents de ce projet vide, doublons, ou coût élevé en tokens. Pour en récupérer un : `git log` / `git show` sur le commit précédent, ou le dossier `skills/<nom>` du dépôt source.
+
+- **Frontend / navigateur** : `frontend-ui-engineering`, `accessibility-engineering`, `browser-testing-with-devtools` (exige un serveur MCP chrome-devtools non configuré)
+- **Ops / livraison** : `ci-cd-and-automation`, `shipping-and-launch`, `observability-and-instrumentation`, `deprecation-and-migration`, `performance-optimization`
+- **Doublons ou coûteux en tokens** : `doubt-driven-development`, `constraint-driven-development`, `source-driven-development` (déjà couvert par Context7), `idea-refine`, `interview-me`, `documentation-and-adrs`, `using-agent-skills`
+- **Ponytail, affichage seul** : `ponytail-help`, `ponytail-gain`, `ponytail-debt`
 
 ## Notes
 
